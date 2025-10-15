@@ -429,15 +429,6 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('APTBot is alive and running!'));
 app.listen(PORT, '0.0.0.0', () => console.log(`✅ Express server running on port ${PORT}`));
 
-// --- Pellia URL Helper ---
-setTimeout(() => {
-  const port = PORT || 3000;
-  console.log('\n🌐 If running on Pellia, your app URL should look like:');
-  console.log(`➡️  https://${process.env.PELLIA_APP_NAME || 'your-app-name'}.pelia.app`);
-  console.log('Or check your Pellia dashboard for the live URL.\n');
-}, 2000);
-
-
 // -------------------- Discord client --------------------
 const client = new Client({
   intents: [
@@ -449,33 +440,6 @@ const client = new Client({
   ],
   partials: [Partials.Channel]
 });
-
-// Log in *immediately*
-client.login(process.env.DISCORD_TOKEN)
-  .then(() => console.log("🟢 Logging into Discord..."))
-  .catch(err => {
-    console.error("❌ Login failed:", err);
-    process.exit(1);
-  });
-
-  // -------------------- Ready handler --------------------
-  client.once('ready', async () => {
-    
-  console.log(`🤖 Logged in as ${client.user.tag}!`);
-  console.log("✅ All systems initialized successfully.");
-    startStatsLoop();
-    // On startup, re-schedule any active giveaways
-for (const id of Object.keys(giveaways || {})) {
-  try {
-    if (giveaways[id] && giveaways[id].active) {
-      scheduleGiveawayEnd(client, id);
-      console.log(`Scheduled giveaway timer for ${id}`);
-    }
-  } catch (err) {
-    console.warn('Failed to schedule giveaway at startup for', id, err);
-  }
-}
-    });
 
 // -------------------- Message handler (commands) --------------------
 client.on('messageCreate', async message => {
@@ -2164,18 +2128,48 @@ client.on('interactionCreate', async interaction => {
 
       // -------------------- Periodic Save Tasks --------------------
 
-      // Save logs every 10 minutes
-      setInterval(() => {
-        saveLogsToDisk().catch(err => console.error('❌ saveLogsToDisk() error (10 min):', err));
-      }, 10 * 60 * 1000);
+// Save logs every 10 minutes
+setInterval(() => {
+  saveLogsToDisk().catch(err => console.error('❌ saveLogsToDisk() error (10 min):', err));
+}, 10 * 60 * 1000);
 
-      // Hourly full log backup
-      setInterval(() => {
-        try {
-          saveLogsToDisk();
-          console.log('💾 Hourly log autosave complete.');
-        } catch (err) {
-          console.error('❌ Hourly autosave failed:', err);
+// Hourly full log backup
+setInterval(() => {
+  try {
+    saveLogsToDisk();
+    console.log('💾 Hourly log autosave complete.');
+  } catch (err) {
+    console.error('❌ Hourly autosave failed:', err);
+  }
+}, 60 * 60 * 1000);
+
+// -------------------- Startup and Login --------------------
+client.once('clientReady', () => {
+  console.log(`🤖 Logged in as ${client.user.tag}!`);
+  console.log(`✅ All systems initialized successfully.`);
+
+  // ✅ Moved giveaway scheduling here so it runs *after* the bot logs in
+  if (giveaways && typeof giveaways === 'object') {
+    for (const id of Object.keys(giveaways)) {
+      try {
+        const giveaway = giveaways[id];
+        if (giveaway && giveaway.active) {
+          scheduleGiveawayEnd(client, id);
+          console.log(`Scheduled giveaway timer for ${id}`);
         }
-      }, 60 * 60 * 1000);
+      } catch (err) {
+        console.warn('⚠️ Failed to schedule giveaway at startup for', id, err);
+      }
+    }
+  } else {
+    console.warn('⚠️ No giveaways data found at startup.');
+  }
 
+  // Optional: Confirm the bot is connected to the right number of guilds
+  console.log(`🌍 Connected to ${client.guilds.cache.size} servers.`);
+});
+
+client.login(process.env.DISCORD_TOKEN).catch(err => {
+  console.error('❌ Failed to login:', err);
+  process.exit(1);
+});
