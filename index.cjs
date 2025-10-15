@@ -423,23 +423,19 @@ async function scheduleGiveawayEnd(client, msgId) {
   giveawayTimers.set(msgId, interval);
 }
 
-// -------------------- Express heartbeat (for Replit uptime) --------------------
+// -------------------- Port (for pelia) --------------------
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('APTBot is alive and running!'));
 app.listen(PORT, '0.0.0.0', () => console.log(`✅ Express server running on port ${PORT}`));
 
-// Self-ping on Replit (keeps bot alive) - using built-in fetch
-if (process.env.REPL_SLUG && process.env.REPL_OWNER) {
-  const fetchUrl = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/`;
-  setInterval(() => {
-    try {
-      fetch(fetchUrl).catch(() => {});
-    } catch (err) {
-      console.error('Self-ping failed:', err);
-    }
-  }, 4 * 60 * 1000);
-}
+// --- Pellia URL Helper ---
+setTimeout(() => {
+  const port = PORT || 3000;
+  console.log('\n🌐 If running on Pellia, your app URL should look like:');
+  console.log(`➡️  https://${process.env.PELLIA_APP_NAME || 'your-app-name'}.pelia.app`);
+  console.log('Or check your Pellia dashboard for the live URL.\n');
+}, 2000);
 
 
 // -------------------- Discord client --------------------
