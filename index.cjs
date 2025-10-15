@@ -2180,7 +2180,7 @@ for (const id of Object.keys(giveaways || {})) {
     console.warn('Failed to schedule giveaway at startup for', id, err);
   }
 }
-      client.login(process.env.TOKEN).catch(err => {
+      client.login(process.env.DISCORD_TOKEN).catch(err => {
         console.error('❌ Failed to login:', err);
         process.exit(1);
       });
