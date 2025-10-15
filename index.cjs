@@ -2164,7 +2164,7 @@ client.on('interactionCreate', async interaction => {
       }, 60 * 60 * 1000);
 
       // -------------------- Startup and Login --------------------
-      client.once('clientReady', () => {
+      client.once('ready', () => {
         console.log(`🤖 Logged in as ${client.user.tag}!`);
         console.log(`✅ All systems initialized successfully.`);
       });
