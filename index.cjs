@@ -423,18 +423,6 @@ async function scheduleGiveawayEnd(client, msgId) {
   giveawayTimers.set(msgId, interval);
 }
 
-// On startup, re-schedule any active giveaways
-for (const id of Object.keys(giveaways || {})) {
-  try {
-    if (giveaways[id] && giveaways[id].active) {
-      scheduleGiveawayEnd(client, id);
-      console.log(`Scheduled giveaway timer for ${id}`);
-    }
-  } catch (err) {
-    console.warn('Failed to schedule giveaway at startup for', id, err);
-  }
-}
-
 // -------------------- Port (for pelia) --------------------
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -476,7 +464,17 @@ client.login(process.env.DISCORD_TOKEN)
   console.log(`🤖 Logged in as ${client.user.tag}!`);
   console.log("✅ All systems initialized successfully.");
     startStatsLoop();
-    
+    // On startup, re-schedule any active giveaways
+for (const id of Object.keys(giveaways || {})) {
+  try {
+    if (giveaways[id] && giveaways[id].active) {
+      scheduleGiveawayEnd(client, id);
+      console.log(`Scheduled giveaway timer for ${id}`);
+    }
+  } catch (err) {
+    console.warn('Failed to schedule giveaway at startup for', id, err);
+  }
+}
     });
 
 // -------------------- Message handler (commands) --------------------
@@ -2180,3 +2178,4 @@ client.on('interactionCreate', async interaction => {
           console.error('❌ Hourly autosave failed:', err);
         }
       }, 60 * 60 * 1000);
+
