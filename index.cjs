@@ -2180,5 +2180,3 @@ client.on('interactionCreate', async interaction => {
           console.error('❌ Hourly autosave failed:', err);
         }
       }, 60 * 60 * 1000);
-      });
-
