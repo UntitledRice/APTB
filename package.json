@@ -1,0 +1,12 @@
+{
+  "name": "aptbot",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@discordjs/builders": "^1.12.2",
+    "discord.js": "^14.23.2",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "node-fetch": "^3.3.2"
+  }
+}
