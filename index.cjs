@@ -423,6 +423,18 @@ async function scheduleGiveawayEnd(client, msgId) {
   giveawayTimers.set(msgId, interval);
 }
 
+// On startup, re-schedule any active giveaways
+for (const id of Object.keys(giveaways || {})) {
+  try {
+    if (giveaways[id] && giveaways[id].active) {
+      scheduleGiveawayEnd(client, id);
+      console.log(`Scheduled giveaway timer for ${id}`);
+    }
+  } catch (err) {
+    console.warn('Failed to schedule giveaway at startup for', id, err);
+  }
+}
+
 // -------------------- Port (for pelia) --------------------
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -450,9 +462,19 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-  // -------------------- Ready handler --------------------
-  client.once('clientReady', async () => {
+// Log in *immediately*
+client.login(process.env.DISCORD_TOKEN)
+  .then(() => console.log("🟢 Logging into Discord..."))
+  .catch(err => {
+    console.error("❌ Login failed:", err);
+    process.exit(1);
+  });
 
+  // -------------------- Ready handler --------------------
+  client.once('ready', async () => {
+    
+  console.log(`🤖 Logged in as ${client.user.tag}!`);
+  console.log("✅ All systems initialized successfully.");
     startStatsLoop();
     
     });
@@ -2158,25 +2180,5 @@ client.on('interactionCreate', async interaction => {
           console.error('❌ Hourly autosave failed:', err);
         }
       }, 60 * 60 * 1000);
-
-      // -------------------- Startup and Login --------------------
-      client.once('ready', () => {
-        console.log(`🤖 Logged in as ${client.user.tag}!`);
-        console.log(`✅ All systems initialized successfully.`);
       });
 
-// On startup, re-schedule any active giveaways
-for (const id of Object.keys(giveaways || {})) {
-  try {
-    if (giveaways[id] && giveaways[id].active) {
-      scheduleGiveawayEnd(client, id);
-      console.log(`Scheduled giveaway timer for ${id}`);
-    }
-  } catch (err) {
-    console.warn('Failed to schedule giveaway at startup for', id, err);
-  }
-}
-      client.login(process.env.DISCORD_TOKEN).catch(err => {
-        console.error('❌ Failed to login:', err);
-        process.exit(1);
-      });
