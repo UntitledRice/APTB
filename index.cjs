@@ -218,19 +218,35 @@ const client = new Client({
       console.log(`- Giveaways: ${Object.keys(giveaways || {}).length || 0}`);
       console.log(`- Giveaway Bans: ${Object.keys(giveawayBans || {}).length || 0}`);
       console.log(`- Giveaway Rigged: ${Object.keys(giveawayRigged || {}).length || 0}`);
-
       console.log('🎉 APTBot startup complete.');
-    });
 
-    // Handle disconnects
-    client.on('shardDisconnect', () => console.warn('⚠️ Discord connection lost.'));
-    client.on('shardReconnecting', () => console.warn('🔁 Reconnecting to Discord...'));
+      // Handle Discord client ready event
+      client.once('ready', () => {
+        console.log(`🤖 Logged in as ${client.user.tag}!`);
+        console.log(`✅ All systems initialized successfully.`);
+      });
 
-  } catch (err) {
-    console.error('❌ Startup error:', err);
-    process.exit(1);
-  }
-})();
+      // Handle disconnects and reconnections
+      client.on('shardDisconnect', () => console.warn('⚠️ Discord connection lost.'));
+      client.on('shardReconnecting', () => console.warn('🔁 Reconnecting to Discord...'));
+
+      // Attempt to login with timeout safeguard
+      const loginTimeout = setTimeout(() => {
+        console.warn('⚠️ Login taking longer than expected...');
+      }, 15000);
+
+      client.login(process.env.DISCORD_TOKEN)
+        .then(() => clearTimeout(loginTimeout))
+        .catch(err => {
+          console.error('❌ Failed to login:', err);
+          process.exit(1);
+        });
+
+    } catch (err) {
+      console.error('❌ Startup error:', err);
+      process.exit(1);
+    }
+  })();
 
 // -------------------- Logging (structured) --------------------
 let logsBuffer = [];
@@ -2214,3 +2230,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
