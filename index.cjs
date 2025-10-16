@@ -511,16 +511,12 @@ client.on('messageCreate', async message => {
     const contentRaw = message.content?.trim() || '';
     if (!contentRaw) return;
     const content = contentRaw.toLowerCase();
+    const isCommand = contentRaw.startsWith('.');
     const isStaff = !!(message.member && message.member.roles.cache.has(STAFF_ROLE_ID));
 
     async function recordUsage(cmd, details='') { await logActionStructured({ command: cmd, message, details }); }
 
     // -------------------- AUTOMOD --------------------
-    // If it's a command (starts with .), skip automod filtering but still process command logic later.
-    let isCommand = false;
-    if (contentRaw.startsWith('.')) {
-      isCommand = true;
-    }
 
     // Ignore specific channel for links
     if (bypassList[message.author.id] && !contentRaw.startsWith('.')) return; // Ignore automod only, not commands
@@ -549,7 +545,8 @@ client.on('messageCreate', async message => {
     const containsLink = /(https?:\/\/|discord\.gg|www\.)/i.test(content);
 
     // Check if the message contains forbidden content (profanity, nudity, or links)
-    if (!isCommand && (containsProfanity || containsNudity || containsLink) && 
+if (!isCommand) {
+  if ((containsProfanity || containsNudity || containsLink) &&
       !LINK_WHITELIST_CHANNELS.includes(message.channel.id)) {
 
       try {
@@ -635,7 +632,8 @@ client.on('messageCreate', async message => {
 
       return;
     }
-
+}
+    
     // ---------- simple public commands ----------
     if (content === '.ping') {
       await recordUsage('.ping');
@@ -2203,6 +2201,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
