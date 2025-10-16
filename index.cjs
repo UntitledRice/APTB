@@ -507,6 +507,7 @@ client.on('messageCreate', async message => {
 //    Use below if no bot feedback to see if console registers commands
 //    console.log(`[DEBUG] Message received: "${message.content}" from ${message.author.tag}`);
     if (message.author.bot) return;
+    console.log(`Received message: ${message.content}`);
     const contentRaw = message.content?.trim() || '';
     if (!contentRaw) return;
     const content = contentRaw.toLowerCase();
@@ -2202,5 +2203,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
