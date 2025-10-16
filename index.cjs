@@ -160,8 +160,10 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-// -------------------- Startup and Login --------------------
+// ✅ Make this global so command handler can access it
+let botReady = false;
 
+// -------------------- Startup and Login --------------------
 (async () => {
   try {
     console.log('🚀 Starting APTBot initialization...');
@@ -180,6 +182,12 @@ const client = new Client({
       console.log(`🤖 Logged in as ${client.user.tag}!`);
       console.log(`✅ All systems initialized successfully.`);
       console.log('🌐 Express server is running (Render environment detected).');
+
+      // ✅ 5-second delay before marking bot as fully ready
+      setTimeout(() => {
+        botReady = true;
+        console.log('🟢 Bot is now fully ready for command handling.');
+      }, 5000);
 
       // Restore giveaways
       console.log('⏳ Re-scheduling active giveaways...');
@@ -503,6 +511,7 @@ app.listen(PORT, '0.0.0.0', () => console.log(`✅ Express server running on por
 
 // -------------------- Message handler (commands) --------------------
 client.on('messageCreate', async message => {
+  if (!botReady) return; // Ignore all messages until bot is ready
   try {
 //    Use below if no bot feedback to see if console registers commands
 //    console.log(`[DEBUG] Message received: "${message.content}" from ${message.author.tag}`);
@@ -2201,6 +2210,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
