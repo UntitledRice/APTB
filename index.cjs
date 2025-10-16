@@ -2144,32 +2144,60 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 // -------------------- Startup and Login --------------------
-client.once('clientReady', () => {
-  console.log(`🤖 Logged in as ${client.user.tag}!`);
-  console.log(`✅ All systems initialized successfully.`);
 
-  // ✅ Moved giveaway scheduling here so it runs *after* the bot logs in
-  if (giveaways && typeof giveaways === 'object') {
-    for (const id of Object.keys(giveaways)) {
-      try {
-        const giveaway = giveaways[id];
-        if (giveaway && giveaway.active) {
-          scheduleGiveawayEnd(client, id);
-          console.log(`Scheduled giveaway timer for ${id}`);
+// Safe startup wrapper
+(async () => {
+  try {
+    console.log('🚀 Starting APTBot initialization...');
+
+    // Login first
+    await client.login(process.env.DISCORD_TOKEN);
+    console.log('🔑 Discord login request sent...');
+
+    // Once logged in, the ready event fires
+    client.once('ready', async () => {
+      console.log(`🤖 Logged in as ${client.user.tag}!`);
+      console.log(`✅ All systems initialized successfully.`);
+
+      // Express server confirmation
+      console.log('🌐 Express server is running (Render environment detected).');
+
+      // Re-schedule any active giveaways AFTER client is ready
+      console.log('⏳ Re-scheduling active giveaways...');
+      let restoredCount = 0;
+      for (const id of Object.keys(giveaways || {})) {
+        try {
+          const gw = giveaways[id];
+          if (gw && gw.active) {
+            scheduleGiveawayEnd(client, id);
+            restoredCount++;
+          }
+        } catch (err) {
+          console.warn('⚠️ Failed to schedule giveaway:', id, err);
         }
-      } catch (err) {
-        console.warn('⚠️ Failed to schedule giveaway at startup for', id, err);
       }
-    }
-  } else {
-    console.warn('⚠️ No giveaways data found at startup.');
+      console.log(`✅ Restored ${restoredCount} active giveaways.`);
+
+      // Log persistent data state
+      console.log('📦 Persistent data status:');
+      console.log(`- Warnings: ${Object.keys(warnings || {}).length} users`);
+      console.log(`- Locked Channels: ${lockedChannels?.length || 0}`);
+      console.log(`- Stats Channels: ${Object.keys(statsChannels || {}).length || 0}`);
+      console.log(`- Bypass List: ${bypassList?.length || 0}`);
+      console.log(`- Inactive Timers: ${Object.keys(inactiveTimers || {}).length || 0}`);
+      console.log(`- Giveaways: ${Object.keys(giveaways || {}).length || 0}`);
+      console.log(`- Giveaway Bans: ${Object.keys(giveawayBans || {}).length || 0}`);
+      console.log(`- Giveaway Rigged: ${Object.keys(giveawayRigged || {}).length || 0}`);
+
+      console.log('🎉 APTBot startup complete.');
+    });
+
+    // Handle disconnects
+    client.on('shardDisconnect', () => console.warn('⚠️ Discord connection lost.'));
+    client.on('shardReconnecting', () => console.warn('🔁 Reconnecting to Discord...'));
+
+  } catch (err) {
+    console.error('❌ Startup error:', err);
+    process.exit(1);
   }
-
-  // Optional: Confirm the bot is connected to the right number of guilds
-  console.log(`🌍 Connected to ${client.guilds.cache.size} servers.`);
-});
-
-client.login(process.env.DISCORD_TOKEN).catch(err => {
-  console.error('❌ Failed to login:', err);
-  process.exit(1);
-});
+})();
