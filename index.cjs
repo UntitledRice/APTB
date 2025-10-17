@@ -2,6 +2,11 @@
 
 require('dotenv').config();
 
+if (!process.env.DISCORD_TOKEN) {
+  console.error("❌ Missing DISCORD_TOKEN in environment! Set it in Render's Environment tab.");
+  process.exit(1);
+}
+
 const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
@@ -181,8 +186,18 @@ if (process.env.RENDER_EXTERNAL_URL) {
   try {
     console.log('🚀 Starting APTBot initialization...');
 
-await client.login(process.env.DISCORD_TOKEN)
+console.log('🕐 Attempting Discord login...');
+const loginPromise = client.login(process.env.DISCORD_TOKEN);
+
+const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Login timeout after 30s')), 30000));
+
+await Promise.race([loginPromise, timeout])
   .then(() => console.log('🔑 Discord login successful.'))
+  .catch(err => {
+    console.error('❌ Discord login failed or timed out:', err);
+    process.exit(1);
+  });
+
   .catch(err => {
     console.error('❌ Login failed:', err);
     process.exit(1);
@@ -2215,6 +2230,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
