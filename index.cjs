@@ -945,16 +945,6 @@ if (!isCommand) {
           time: 600000,
         });
 
-collector.on('collect', async i => {
-  // --- Prevent "Unknown interaction" by deferring non-modal clicks ---
-  if (!i.deferred && !i.replied && i.customId !== 'gw_edit') {
-    try {
-      await i.deferUpdate();
-    } catch (err) {
-      console.warn('⚠️ Failed to defer interaction:', err.message);
-    }
-  }
-
   // Restrict buttons to giveaway host
   if (i.user.id !== message.author.id)
     return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
@@ -1019,6 +1009,16 @@ try {
       }
     }
     return; // stop here after showing modal
+  }
+        
+collector.on('collect', async i => {
+  // --- Prevent "Unknown interaction" by deferring non-modal clicks ---
+  if (!i.deferred && !i.replied && i.customId !== 'gw_edit') {
+    try {
+      await i.deferUpdate();
+    } catch (err) {
+      console.warn('⚠️ Failed to defer interaction:', err.message);
+    }
   }
 
   // ---- START BUTTON ----
@@ -2269,6 +2269,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
