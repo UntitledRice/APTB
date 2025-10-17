@@ -945,9 +945,14 @@ if (!isCommand) {
           time: 600000,
         });
 
-        collector.on('collect', async i => {
-          if (i.user.id !== message.author.id)
-            return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
+       collector.on('collect', async i => {
+  // --- Quick defer to prevent "Unknown interaction" ---
+  if (!i.deferred && !i.replied) {
+    await i.deferUpdate().catch(() => {});
+  }
+
+  if (i.user.id !== message.author.id)
+    return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
 
           if (i.customId === 'gwsetup_cancel') {
             if (!i.replied && !i.deferred) {
@@ -2256,6 +2261,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
