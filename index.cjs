@@ -188,7 +188,6 @@ if (process.env.RENDER_EXTERNAL_URL) {
 
 console.log('🕐 Attempting Discord login...');
 const loginPromise = client.login(process.env.DISCORD_TOKEN);
-
 const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Login timeout after 30s')), 30000));
 
 await Promise.race([loginPromise, timeout])
@@ -2230,6 +2229,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
