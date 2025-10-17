@@ -1128,7 +1128,7 @@ if (!submitted) {
             console.error('Failed to update giveaway message:', err);
           }
 
-          await logActionStructured({
+                   await logActionStructured({
             command: '.giveaway edit',
             message,
             details: `Edited giveaway ${msgId} (Prize: ${gw.prize}, Winners: ${gw.winnersCount})`,
@@ -1136,7 +1136,7 @@ if (!submitted) {
         } catch (err) {
           console.error('❌ Error in giveaway edit modal:', err);
         }
-      });
+      }); // closes collector.on('collect')
 
       collector.on('end', async () => {
         if (!msg.editable) return;
@@ -2181,6 +2181,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
