@@ -945,103 +945,111 @@ if (!isCommand) {
           time: 600000,
         });
 
-       collector.on('collect', async i => {
-  // --- Quick defer to prevent "Unknown interaction" ---
-  if (!i.deferred && !i.replied) {
-    await i.deferUpdate().catch(() => {});
+collector.on('collect', async i => {
+  // --- Prevent "Unknown interaction" by deferring non-modal clicks ---
+  if (!i.deferred && !i.replied && i.customId !== 'gw_edit') {
+    try {
+      await i.deferUpdate();
+    } catch (err) {
+      console.warn('⚠️ Failed to defer interaction:', err.message);
+    }
   }
 
+  // Restrict buttons to giveaway host
   if (i.user.id !== message.author.id)
     return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
 
-          if (i.customId === 'gwsetup_cancel') {
-            if (!i.replied && !i.deferred) {
-              await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
-            }
-            collector.stop();
-            return;
-          }
-
-if (i.customId === 'gw_edit') {
-  try {
-    // ✅ No defer here — modals must be the first reply
-    const modal = new ModalBuilder()
-      .setCustomId(`gw_setup_edit_modal_${setupMsg.id}`)
-      .setTitle('Edit Giveaway Setup')
-      .addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('edit_prize')
-            .setLabel('Prize')
-            .setStyle(TextInputStyle.Short)
-            .setValue(prize)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('edit_duration')
-            .setLabel('Duration (e.g., 2d, 3h, 45m)')
-            .setStyle(TextInputStyle.Short)
-            .setValue(durationRaw)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('edit_winners')
-            .setLabel('Number of Winners')
-            .setStyle(TextInputStyle.Short)
-            .setValue(String(winnersCount))
-            .setRequired(true)
-        )
-      );
-
-    await i.showModal(modal);
-    console.log('✅ Modal displayed for', i.user.tag);
-  } catch (err) {
-    console.error('❌ Modal show error (fixed flow):', err);
+  // ---- CANCEL BUTTON ----
+  if (i.customId === 'gwsetup_cancel') {
     if (!i.replied && !i.deferred) {
-      await i.reply({ content: '⚠️ Failed to open modal.', flags: 64 }).catch(() => {});
+      await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
     }
+    collector.stop();
+    return;
   }
-}
 
-          if (i.customId === 'gw_start') {
-            const start = Date.now();
-            const end = start + durationMs;
+  // ---- EDIT BUTTON ----
+  if (i.customId === 'gw_edit') {
+    try {
+      // 🚫 Do NOT defer before showing modal
+      const modal = new ModalBuilder()
+        .setCustomId(`gw_setup_edit_modal_${setupMsg.id}`)
+        .setTitle('Edit Giveaway Setup')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('edit_prize')
+              .setLabel('Prize')
+              .setStyle(TextInputStyle.Short)
+              .setValue(prize)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('edit_duration')
+              .setLabel('Duration (e.g., 2d, 3h, 45m)')
+              .setStyle(TextInputStyle.Short)
+              .setValue(durationRaw)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('edit_winners')
+              .setLabel('Number of Winners')
+              .setStyle(TextInputStyle.Short)
+              .setValue(String(winnersCount))
+              .setRequired(true)
+          )
+        );
 
-            const gwEmbed = new EmbedBuilder()
-              .setTitle(`🎉 ${prize}`)
-              .setDescription(
-                `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
-                  end / 1000
-                )}:R>\n\nClick 🎉 to enter!`
-              )
-              .setColor(0xffc107)
-              .setTimestamp(new Date(end));
+      await i.showModal(modal);
+      console.log('✅ Modal displayed for', i.user.tag);
+    } catch (err) {
+      console.error('❌ Modal show error (fixed flow):', err);
+      if (!i.replied && !i.deferred) {
+        await i.reply({ content: '⚠️ Failed to open modal.', flags: 64 }).catch(() => {});
+      }
+    }
+    return; // stop here after showing modal
+  }
 
-            const joinRow = new ActionRowBuilder().addComponents(
-              new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
-              new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
-            );
+  // ---- START BUTTON ----
+  if (i.customId === 'gw_start') {
+    const start = Date.now();
+    const end = start + durationMs;
 
-            const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
+    const gwEmbed = new EmbedBuilder()
+      .setTitle(`🎉 ${prize}`)
+      .setDescription(
+        `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
+          end / 1000
+        )}:R>\n\nClick 🎉 to enter!`
+      )
+      .setColor(0xffc107)
+      .setTimestamp(new Date(end));
 
-            giveaways[gwMsg.id] = {
-              prize,
-              hostId: message.author.id,
-              winnersCount,
-              end,
-              participants: [],
-              channelId: message.channel.id,
-              guildId: message.guild.id,
-              active: true,
-            };
-            saveGiveaways();
-            // schedule the end timer (centralized)
-            scheduleGiveawayEnd(client, gwMsg.id);
-            safeReply(i, { content: `✅ Giveaway started for **${prize}**!`, embeds: [], components: [] });
-          }
-        });
+    const joinRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
+    );
+
+    const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
+
+    giveaways[gwMsg.id] = {
+      prize,
+      hostId: message.author.id,
+      winnersCount,
+      end,
+      participants: [],
+      channelId: message.channel.id,
+      guildId: message.guild.id,
+      active: true,
+    };
+    saveGiveaways();
+    scheduleGiveawayEnd(client, gwMsg.id);
+    safeReply(i, { content: `✅ Giveaway started for **${prize}**!`, embeds: [], components: [] });
+  }
+});
 
         return;
       }
@@ -2253,6 +2261,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
