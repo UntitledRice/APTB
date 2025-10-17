@@ -964,7 +964,7 @@ if (!isCommand) {
 
 if (i.customId === 'gw_edit') {
   try {
-    // ✅ DO NOT defer before showing modal — Discord disallows that.
+    // ✅ No defer here — modals must be the first reply
     const modal = new ModalBuilder()
       .setCustomId(`gw_setup_edit_modal_${setupMsg.id}`)
       .setTitle('Edit Giveaway Setup')
@@ -1004,21 +1004,6 @@ if (i.customId === 'gw_edit') {
     }
   }
 }
-
-              // Step 3: Delay just enough for Discord to process deferUpdate (important)
-              await new Promise(r => setTimeout(r, 300));
-
-              // Step 4: Show the modal
-              await i.user.send('🧩 Opening edit menu... (if modal doesn’t appear, click Edit again)').catch(() => {});
-              await i.showModal(modal);
-              console.log('✅ Modal displayed for', i.user.tag);
-            } catch (err) {
-              console.error('❌ Modal show error (fixed flow):', err);
-              if (!i.replied && !i.deferred) {
-                await i.reply({ content: '⚠️ Failed to open modal.', flags: 64 }).catch(() => {});
-              }
-            }
-          }
 
           if (i.customId === 'gw_start') {
             const start = Date.now();
@@ -2268,6 +2253,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
