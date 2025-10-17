@@ -921,8 +921,13 @@ if (subCmd === 'create') {
     // ---- START BUTTON ----
     if (i.customId === 'gw_start') {
       try {
-        if (!i.deferred && !i.replied) await i.deferUpdate().catch(() => {});
-      } catch {}
+      try {
+        if (!i.deferred && !i.replied) {
+          await i.deferUpdate().catch(() => {});
+        }
+      } catch (err) {
+        console.error('⚠️ Error deferring interaction:', err);
+      }
 
       const start = Date.now();
       const end = start + durationMs;
@@ -1141,7 +1146,6 @@ if (!submitted) {
 
       return;
       }
-    }
 
     // ---------- .stats command (persistent toggle) ----------
     if (content === '.stats') {
@@ -2178,5 +2182,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
