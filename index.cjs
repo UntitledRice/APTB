@@ -1129,14 +1129,17 @@ if (!submitted) {
             message,
             details: `Edited giveaway ${msgId} (Prize: ${gw.prize}, Winners: ${gw.winnersCount})`,
           });
-        });
+        } catch (err) {
+          console.error('❌ Error in giveaway edit modal:', err);
+        }
+      });
 
-        collector.on('end', async () => {
-          if (!msg.editable) return;
-          await msg.edit({ components: [] }).catch(() => {});
-        });
+      collector.on('end', async () => {
+        if (!msg.editable) return;
+        await msg.edit({ components: [] }).catch(() => {});
+      });
 
-        return;
+      return;
       }
     }
 
@@ -2175,4 +2178,5 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
