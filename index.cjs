@@ -187,18 +187,16 @@ if (process.env.RENDER_EXTERNAL_URL) {
     console.log('🚀 Starting APTBot initialization...');
 
 console.log('🕐 Attempting Discord login...');
+// Create login promise and timeout race
 const loginPromise = client.login(process.env.DISCORD_TOKEN);
-const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Login timeout after 30s')), 30000));
+const timeout = new Promise((_, reject) =>
+  setTimeout(() => reject(new Error('Login timeout after 30s')), 30000)
+);
 
 await Promise.race([loginPromise, timeout])
   .then(() => console.log('🔑 Discord login successful.'))
   .catch(err => {
     console.error('❌ Discord login failed or timed out:', err);
-    process.exit(1);
-  });
-
-  .catch(err => {
-    console.error('❌ Login failed:', err);
     process.exit(1);
   });
 
@@ -2229,6 +2227,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
