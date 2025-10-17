@@ -932,11 +932,16 @@ if (subCmd === 'create') {
     .setFooter({ text: `Host: ${message.author.tag}` })
     .setColor(0x2b6cb0);
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('gw_start').setLabel('Start').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('gw_edit').setLabel('Edit').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('gwsetup_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
-  );
+const row = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId('gw_start')
+    .setLabel('Start')
+    .setStyle(ButtonStyle.Success),
+  new ButtonBuilder()
+    .setCustomId('gwsetup_cancel')
+    .setLabel('Cancel')
+    .setStyle(ButtonStyle.Danger)
+);
 
   const setupMsg = await message.channel.send({ embeds: [controlEmbed], components: [row] });
 
@@ -2253,6 +2258,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
