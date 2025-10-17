@@ -169,18 +169,11 @@ const client = new Client({
 // ✅ Make this global so command handler can access it
 let botReady = false;
 
-// -------------------- Port (for pelia) --------------------
+// -------------------- Port (for PI) --------------------
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('APTBot is alive and running!'));
 app.listen(PORT, '0.0.0.0', () => console.log(`✅ Express server running on port ${PORT}`));
-
-if (process.env.RENDER_EXTERNAL_URL) {
-  const keepAliveUrl = process.env.RENDER_EXTERNAL_URL;
-  setInterval(() => {
-    fetch(keepAliveUrl).catch(() => {});
-  }, 4 * 60 * 1000); // ping every 4 minutes
-}
 
 // -------------------- Startup and Login --------------------
 (async () => {
@@ -2246,6 +2239,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
