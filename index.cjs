@@ -921,7 +921,6 @@ if (subCmd === 'create') {
     // ---- START BUTTON ----
     if (i.customId === 'gw_start') {
       try {
-      try {
         if (!i.deferred && !i.replied) {
           await i.deferUpdate().catch(() => {});
         }
@@ -2182,6 +2181,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
