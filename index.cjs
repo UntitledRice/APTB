@@ -906,158 +906,146 @@ if (!isCommand) {
         return message.channel.send(`🎭 **${target.tag}** can join but will never win.`);
       }
 
-      // ---- Giveaway Create ----
-      if (subCmd === 'create') {
-        const [durationRaw, ...rest] = args;
-        if (!durationRaw || rest.length < 2)
-          return message.channel.send('⚠️ Usage: `.giveaway create <duration> <prize> <winners>`');
+// ---- Giveaway Create ----
+if (subCmd === 'create') {
+  const [durationRaw, ...rest] = args;
+  if (!durationRaw || rest.length < 2)
+    return message.channel.send('⚠️ Usage: `.giveaway create <duration> <prize> <winners>`');
 
-        const durationMatch = durationRaw.match(/^(\d+)([dhms])$/i);
-        if (!durationMatch) return message.channel.send('⚠️ Invalid duration (use 10s / 5m / 2h / 1d).');
+  const durationMatch = durationRaw.match(/^(\d+)([dhms])$/i);
+  if (!durationMatch) return message.channel.send('⚠️ Invalid duration (use 10s / 5m / 2h / 1d).');
 
-        const durationValue = parseInt(durationMatch[1]);
-        const durationUnit = durationMatch[2].toLowerCase();
-        const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-        const durationMs = durationValue * unitMs[durationUnit];
+  const durationValue = parseInt(durationMatch[1]);
+  const durationUnit = durationMatch[2].toLowerCase();
+  const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+  const durationMs = durationValue * unitMs[durationUnit];
 
-        const winnersCount = parseInt(rest.pop());
-        const prize = rest.join(' ');
-        if (!prize) return message.channel.send('⚠️ Prize required.');
-        if (isNaN(winnersCount) || winnersCount < 1)
-          return message.channel.send('⚠️ Winners must be a number ≥ 1.');
+  const winnersCount = parseInt(rest.pop());
+  const prize = rest.join(' ');
+  if (!prize) return message.channel.send('⚠️ Prize required.');
+  if (isNaN(winnersCount) || winnersCount < 1)
+    return message.channel.send('⚠️ Winners must be a number ≥ 1.');
 
-        const controlEmbed = new EmbedBuilder()
-          .setTitle('🎁 Giveaway Setup')
-          .setDescription(`**Prize:** ${prize}\n**Winners:** ${winnersCount}\n**Duration:** ${durationRaw}`)
-          .setFooter({ text: `Host: ${message.author.tag}` })
-          .setColor(0x2b6cb0);
+  const controlEmbed = new EmbedBuilder()
+    .setTitle('🎁 Giveaway Setup')
+    .setDescription(`**Prize:** ${prize}\n**Winners:** ${winnersCount}\n**Duration:** ${durationRaw}`)
+    .setFooter({ text: `Host: ${message.author.tag}` })
+    .setColor(0x2b6cb0);
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('gw_start').setLabel('Start').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId('gw_edit').setLabel('Edit').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId('gwsetup_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
-        );
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('gw_start').setLabel('Start').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('gw_edit').setLabel('Edit').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('gwsetup_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
+  );
 
-        const setupMsg = await message.channel.send({ embeds: [controlEmbed], components: [row] });
+  const setupMsg = await message.channel.send({ embeds: [controlEmbed], components: [row] });
 
-        const collector = setupMsg.createMessageComponentCollector({
-          componentType: ComponentType.Button,
-          time: 600000,
-        });
+  const collector = setupMsg.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    time: 600000,
+  });
 
-        collector.on('collect', async i => {
-          // Restrict buttons to giveaway host
-          if (i.user.id !== message.author.id)
-            return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
+  collector.on('collect', async (i) => {
+    // Only host can use
+    if (i.user.id !== message.author.id)
+      return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
 
-          // ---- CANCEL BUTTON ----
-          if (i.customId === 'gwsetup_cancel') {
-            if (!i.replied && !i.deferred) {
-              await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
-            }
-            collector.stop();
-            return;
-          }
+    // ---- CANCEL ----
+    if (i.customId === 'gwsetup_cancel') {
+      await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
+      collector.stop();
+      return;
+    }
 
-          // ---- EDIT BUTTON ----
-          if (i.customId === 'gw_edit') {
-            try {
-              if (Date.now() - i.createdTimestamp > 2500) {
-                console.warn('⚠️ Interaction too old, skipping modal.');
-                return safeReply(i, { content: '⚠️ Interaction timed out. Please click Edit again.', flags: 64 });
-              }
+    // ---- EDIT ----
+    if (i.customId === 'gw_edit') {
+      try {
+        const modal = new ModalBuilder()
+          .setCustomId(`gw_setup_edit_modal_${setupMsg.id}`)
+          .setTitle('Edit Giveaway Setup')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('edit_prize')
+                .setLabel('Prize')
+                .setStyle(TextInputStyle.Short)
+                .setValue(prize)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('edit_duration')
+                .setLabel('Duration (e.g., 2d, 3h, 45m)')
+                .setStyle(TextInputStyle.Short)
+                .setValue(durationRaw)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('edit_winners')
+                .setLabel('Number of Winners')
+                .setStyle(TextInputStyle.Short)
+                .setValue(String(winnersCount))
+                .setRequired(true)
+            )
+          );
 
-              const modal = new ModalBuilder()
-                .setCustomId(`gw_setup_edit_modal_${setupMsg.id}`)
-                .setTitle('Edit Giveaway Setup')
-                .addComponents(
-                  new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                      .setCustomId('edit_prize')
-                      .setLabel('Prize')
-                      .setStyle(TextInputStyle.Short)
-                      .setValue(prize)
-                      .setRequired(true)
-                  ),
-                  new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                      .setCustomId('edit_duration')
-                      .setLabel('Duration (e.g., 2d, 3h, 45m)')
-                      .setStyle(TextInputStyle.Short)
-                      .setValue(durationRaw)
-                      .setRequired(true)
-                  ),
-                  new ActionRowBuilder().addComponents(
-                    new TextInputBuilder()
-                      .setCustomId('edit_winners')
-                      .setLabel('Number of Winners')
-                      .setStyle(TextInputStyle.Short)
-                      .setValue(String(winnersCount))
-                      .setRequired(true)
-                  )
-                );
-
-              await i.showModal(modal);
-              console.log('✅ Modal displayed for', i.user.tag);
-            } catch (err) {
-              console.error('❌ Modal show error (fixed flow):', err);
-              if (!i.replied && !i.deferred) {
-                await i.reply({ content: '⚠️ Failed to open modal.', flags: 64 }).catch(() => {});
-              }
-            }
-            return;
-          }
-
-          // --- Defer only non-modal interactions ---
-          if (!i.deferred && !i.replied && i.customId !== 'gw_edit') {
-            try {
-              await i.deferUpdate();
-            } catch (err) {
-              console.warn('⚠️ Failed to defer interaction:', err.message);
-            }
-          }
-
-          // ---- START BUTTON ----
-          if (i.customId === 'gw_start') {
-            const start = Date.now();
-            const end = start + durationMs;
-
-            const gwEmbed = new EmbedBuilder()
-              .setTitle(`🎉 ${prize}`)
-              .setDescription(
-                `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
-                  end / 1000
-                )}:R>\n\nClick 🎉 to enter!`
-              )
-              .setColor(0xffc107)
-              .setTimestamp(new Date(end));
-
-            const joinRow = new ActionRowBuilder().addComponents(
-              new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
-              new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
-            );
-
-            const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
-
-            giveaways[gwMsg.id] = {
-              prize,
-              hostId: message.author.id,
-              winnersCount,
-              end,
-              participants: [],
-              channelId: message.channel.id,
-              guildId: message.guild.id,
-              active: true,
-            };
-            saveGiveaways();
-            scheduleGiveawayEnd(client, gwMsg.id);
-            safeReply(i, { content: `✅ Giveaway started for **${prize}**!`, embeds: [], components: [] });
-          }
-        });
-
-        return;
+        await i.showModal(modal);
+        console.log('✅ Modal displayed for', i.user.tag);
+      } catch (err) {
+        console.error('❌ Modal show error (fixed flow):', err);
+        if (!i.replied && !i.deferred) {
+          await i.reply({ content: '⚠️ Failed to open modal.', flags: 64 }).catch(() => {});
+        }
       }
+      return;
+    }
 
+    // ---- START ----
+    if (i.customId === 'gw_start') {
+      try {
+        if (!i.deferred && !i.replied) await i.deferUpdate();
+      } catch {}
+
+      const start = Date.now();
+      const end = start + durationMs;
+
+      const gwEmbed = new EmbedBuilder()
+        .setTitle(`🎉 ${prize}`)
+        .setDescription(
+          `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
+            end / 1000
+          )}:R>\n\nClick 🎉 to enter!`
+        )
+        .setColor(0xffc107)
+        .setTimestamp(new Date(end));
+
+      const joinRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
+      );
+
+      const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
+
+      giveaways[gwMsg.id] = {
+        prize,
+        hostId: message.author.id,
+        winnersCount,
+        end,
+        participants: [],
+        channelId: message.channel.id,
+        guildId: message.guild.id,
+        active: true,
+      };
+      saveGiveaways();
+      scheduleGiveawayEnd(client, gwMsg.id);
+      safeReply(i, { content: `✅ Giveaway started for **${prize}**!`, embeds: [], components: [] });
+    }
+  });
+
+  return;
+}
+      
       // ---- Giveaway Delete ----
       if (subCmd === 'delete') {
         const msgId = args[0];
@@ -2265,6 +2253,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
