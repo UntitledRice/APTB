@@ -970,40 +970,48 @@ collector.on('collect', async i => {
 
   // ---- EDIT BUTTON ----
   if (i.customId === 'gw_edit') {
-    try {
-      // 🚫 Do NOT defer before showing modal
-      const modal = new ModalBuilder()
-        .setCustomId(`gw_setup_edit_modal_${setupMsg.id}`)
-        .setTitle('Edit Giveaway Setup')
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('edit_prize')
-              .setLabel('Prize')
-              .setStyle(TextInputStyle.Short)
-              .setValue(prize)
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('edit_duration')
-              .setLabel('Duration (e.g., 2d, 3h, 45m)')
-              .setStyle(TextInputStyle.Short)
-              .setValue(durationRaw)
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('edit_winners')
-              .setLabel('Number of Winners')
-              .setStyle(TextInputStyle.Short)
-              .setValue(String(winnersCount))
-              .setRequired(true)
-          )
-        );
+try {
+  // --- Ensure Discord still recognizes the interaction ---
+  if (Date.now() - i.createdTimestamp > 2500) {
+    console.warn('⚠️ Interaction too old, skipping modal.');
+    return safeReply(i, { content: '⚠️ Interaction timed out. Please click Edit again.', flags: 64 });
+  }
 
-      await i.showModal(modal);
-      console.log('✅ Modal displayed for', i.user.tag);
+  // 🚫 Do NOT defer before showing modal
+  const modal = new ModalBuilder()
+    .setCustomId(`gw_setup_edit_modal_${setupMsg.id}`)
+    .setTitle('Edit Giveaway Setup')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('edit_prize')
+          .setLabel('Prize')
+          .setStyle(TextInputStyle.Short)
+          .setValue(prize)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('edit_duration')
+          .setLabel('Duration (e.g., 2d, 3h, 45m)')
+          .setStyle(TextInputStyle.Short)
+          .setValue(durationRaw)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('edit_winners')
+          .setLabel('Number of Winners')
+          .setStyle(TextInputStyle.Short)
+          .setValue(String(winnersCount))
+          .setRequired(true)
+      )
+    );
+
+  // --- Immediate modal open ---
+  await i.showModal(modal);
+  console.log('✅ Modal displayed for', i.user.tag);
+
     } catch (err) {
       console.error('❌ Modal show error (fixed flow):', err);
       if (!i.replied && !i.deferred) {
@@ -2261,6 +2269,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
