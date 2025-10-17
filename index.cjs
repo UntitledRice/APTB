@@ -1010,6 +1010,7 @@ if (i.customId === 'gw_start') {
   } else {
     await message.channel.send(`✅ Giveaway started for **${prize}**!`);
   }
+});
   return;
 }
 
@@ -2220,27 +2221,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
