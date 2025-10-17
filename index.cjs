@@ -187,11 +187,30 @@ if (process.env.RENDER_EXTERNAL_URL) {
     console.log('🚀 Starting APTBot initialization...');
 
 console.log('🕐 Attempting Discord login...');
-// Create login promise and timeout race
-const loginPromise = client.login(process.env.DISCORD_TOKEN);
-const timeout = new Promise((_, reject) =>
-  setTimeout(() => reject(new Error('Login timeout after 30s')), 30000)
-);
+
+async function tryLogin(retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`🔑 Discord login attempt ${attempt}/${retries}...`);
+      await client.login(process.env.DISCORD_TOKEN);
+      console.log('✅ Discord login successful!');
+      return;
+    } catch (err) {
+      console.error(`❌ Login attempt ${attempt} failed:`, err.message);
+      if (attempt < retries) {
+        console.log('⏳ Retrying in 5 seconds...');
+        await new Promise(r => setTimeout(r, 5000));
+      } else {
+        throw new Error('Exceeded Discord login retries.');
+      }
+    }
+  }
+}
+
+await tryLogin().catch(err => {
+  console.error('💥 Discord login ultimately failed:', err);
+  process.exit(1);
+});
 
 await Promise.race([loginPromise, timeout])
   .then(() => console.log('🔑 Discord login successful.'))
@@ -2227,6 +2246,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
