@@ -163,19 +163,18 @@ const client = new Client({
 // ✅ Make this global so command handler can access it
 let botReady = false;
 
+
 // -------------------- Startup and Login --------------------
 (async () => {
   try {
     console.log('🚀 Starting APTBot initialization...');
 
-    // Attempt login
-    const loginTimeout = setTimeout(() => {
-      console.warn('⚠️ Login taking longer than expected...');
-    }, 15000);
-
-    await client.login(process.env.DISCORD_TOKEN);
-    clearTimeout(loginTimeout);
-    console.log('🔑 Discord login successful.');
+await client.login(process.env.DISCORD_TOKEN)
+  .then(() => console.log('🔑 Discord login successful.'))
+  .catch(err => {
+    console.error('❌ Login failed:', err);
+    process.exit(1);
+  });
 
     // Handle when bot is ready
     client.once('ready', async () => {
@@ -2210,6 +2209,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
