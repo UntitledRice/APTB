@@ -970,7 +970,6 @@ if (subCmd === 'create') {
   }); // ✅ <- correct closing
 
   return; // ✅ properly ends subCmd block
-}
 
       // ---- Giveaway Delete ----
       if (subCmd === 'delete') {
@@ -1128,7 +1127,7 @@ if (!submitted) {
             console.error('Failed to update giveaway message:', err);
           }
 
-                   await logActionStructured({
+           await logActionStructured({
             command: '.giveaway edit',
             message,
             details: `Edited giveaway ${msgId} (Prize: ${gw.prize}, Winners: ${gw.winnersCount})`,
@@ -2093,7 +2092,6 @@ client.on('interactionCreate', async interaction => {
         try { await interaction.reply({ content: '❌ An error occurred handling that action.', flags: 64 }); } catch (e) {}
       }
     }
-  }  
 });
 
 // -------------------- Global Giveaway Edit Modal Handler --------------------
@@ -2181,6 +2179,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
