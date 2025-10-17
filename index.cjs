@@ -521,7 +521,7 @@ async function scheduleGiveawayEnd(client, msgId) {
       // final bookkeeping
       saveGiveaways();
       await logActionStructured({
-        command: '.gw',
+        command: '.giveaway',
         message: { author: { id: curGw.hostId }, guild: { id: curGw.guildId }, channel: { id: curGw.channelId } },
         details: `Giveaway ended — Prize: ${curGw.prize}, Winners: ${winnerMentions}`,
       });
@@ -859,9 +859,9 @@ if (!isCommand) {
       }
     }
 
-    // ---------- .gw (Giveaway System) ----------
-    if (content.startsWith('.gw')) {
-      await recordUsage('.gw');
+    // ---------- .giveaway (Giveaway System) ----------
+    if (content.startsWith('.giveaway')) {
+      await recordUsage('.giveaway');
       if (!isStaff) return message.channel.send('❌ Only Staff can manage giveaways.');
 
       const args = contentRaw.split(/\s+/).slice(1);
@@ -875,9 +875,9 @@ if (!isCommand) {
           .setDescription(
             `**Usage Examples:**\n` +
             '```bash\n' +
-            '.gw create 2d Nitro 1\n' +
-            '.gw edit <messageID>\n' +
-            '.gw delete <messageID>\n' +
+            '.giveaway create 2d Nitro 1\n' +
+            '.giveaway edit <messageID>\n' +
+            '.giveaway delete <messageID>\n' +
 //            '.gw ban <@User>\n' +
 //            '.gw rig <@User>\n' +
             '```\n' +
@@ -910,7 +910,7 @@ if (!isCommand) {
       if (subCmd === 'create') {
         const [durationRaw, ...rest] = args;
         if (!durationRaw || rest.length < 2)
-          return message.channel.send('⚠️ Usage: `.gw create <duration> <prize> <winners>`');
+          return message.channel.send('⚠️ Usage: `.giveaway create <duration> <prize> <winners>`');
 
         const durationMatch = durationRaw.match(/^(\d+)([dhms])$/i);
         if (!durationMatch) return message.channel.send('⚠️ Invalid duration (use 10s / 5m / 2h / 1d).');
@@ -1137,16 +1137,33 @@ if (!isCommand) {
             );
           }
 
-          await i.showModal(modal);
+       // Safely open modal (ensure we haven't already replied/deferred)
+if (i.replied || i.deferred) return;
+try {
+  await i.showModal(modal);
+} catch (err) {
+  console.error('⚠️ Modal display failed:', err);
+  return safeReply(i, { content: '❌ Failed to open edit modal.', flags: 64 });
+}
 
-          // Wait for the modal submission from the same user
-          const submitted = await i.awaitModalSubmit({
-            filter: (m) => m.user.id === i.user.id,
-            time: 120000,
-          }).catch(() => null);
+// Wait for the modal submission
+let submitted;
+try {
+  submitted = await i.awaitModalSubmit({
+    filter: (m) => m.user.id === i.user.id,
+    time: 120000,
+  });
+} catch {
+  submitted = null;
+}
 
-          if (!submitted) return i.followUp({ content: '⏱️ Edit timed out.', flags: 64 });
-
+if (!submitted) {
+  if (!i.replied && !i.deferred) {
+    await safeReply(i, { content: '⏱️ Edit timed out.', flags: 64 });
+  }
+  return;
+}
+          
           // Process submitted data
           if (submitted.customId.includes('edit_prize')) {
             gw.prize = submitted.fields.getTextInputValue('new_prize');
@@ -1189,7 +1206,7 @@ if (!isCommand) {
           }
 
           await logActionStructured({
-            command: '.gw edit',
+            command: '.giveaway edit',
             message,
             details: `Edited giveaway ${msgId} (Prize: ${gw.prize}, Winners: ${gw.winnersCount})`,
           });
@@ -2239,6 +2256,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
