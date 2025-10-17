@@ -859,53 +859,6 @@ if (!isCommand) {
       }
     }
 
-    // ---------- .giveaway (Giveaway System) ----------
-    if (content.startsWith('.giveaway')) {
-      await recordUsage('.giveaway');
-      if (!isStaff) return message.channel.send('❌ Only Staff can manage giveaways.');
-
-      const args = contentRaw.split(/\s+/).slice(1);
-      const subCmd = args.shift()?.toLowerCase();
-
-      // no arguments — show usage
-      if (!subCmd) {
-        const embed = new EmbedBuilder()
-          .setTitle('🎉 Giveaway Command Usage')
-          .setColor(0x2b6cb0)
-          .setDescription(
-            `**Usage Examples:**\n` +
-            '```bash\n' +
-            '.giveaway create 2d Nitro 1\n' +
-            '.giveaway edit <messageID>\n' +
-            '.giveaway delete <messageID>\n' +
-//            '.gw ban <@User>\n' +
-//            '.gw rig <@User>\n' +
-            '```\n' +
-            '**Duration formats:** 1d / 12h / 30m / 10s\n' +
-            '**Prize:** string (required)\n' +
-            '**Winners:** number (required, ≥1)'
-          );
-        return message.channel.send({ embeds: [embed] });
-      }
-
-      // ---- Giveaway Ban ----
-      if (subCmd === 'ban') {
-        const target = message.mentions.users.first();
-        if (!target) return message.channel.send('⚠️ Mention a user to ban from giveaways.');
-        giveawayBans[target.id] = true;
-        saveGiveawayBans();
-        return message.channel.send(`🚫 **${target.tag}** has been banned from joining giveaways.`);
-      }
-
-      // ---- Giveaway Rig ----
-      if (subCmd === 'rig') {
-        const target = message.mentions.users.first();
-        if (!target) return message.channel.send('⚠️ Mention a user to rig (cannot win).');
-        giveawayRigged[target.id] = true;
-        saveGiveawayRigged();
-        return message.channel.send(`🎭 **${target.tag}** can join but will never win.`);
-      }
-
 // ---- Giveaway Create ----
 if (subCmd === 'create') {
   const [durationRaw, ...rest] = args;
@@ -932,16 +885,16 @@ if (subCmd === 'create') {
     .setFooter({ text: `Host: ${message.author.tag}` })
     .setColor(0x2b6cb0);
 
-const row = new ActionRowBuilder().addComponents(
-  new ButtonBuilder()
-    .setCustomId('gw_start')
-    .setLabel('Start')
-    .setStyle(ButtonStyle.Success),
-  new ButtonBuilder()
-    .setCustomId('gwsetup_cancel')
-    .setLabel('Cancel')
-    .setStyle(ButtonStyle.Danger)
-);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('gw_start')
+      .setLabel('Start')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('gwsetup_cancel')
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Danger)
+  );
 
   const setupMsg = await message.channel.send({ embeds: [controlEmbed], components: [row] });
 
@@ -955,63 +908,64 @@ const row = new ActionRowBuilder().addComponents(
     if (i.user.id !== message.author.id)
       return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
 
-// ---- CANCEL BUTTON ----
-if (i.customId === 'gwsetup_cancel') {
-  if (!i.replied && !i.deferred) {
-    await i.deferUpdate().catch(() => {});
-  }
-  await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
-  collector.stop();
-  return;
-}
+    // ---- CANCEL BUTTON ----
+    if (i.customId === 'gwsetup_cancel') {
+      if (!i.replied && !i.deferred) {
+        await i.deferUpdate().catch(() => {});
+      }
+      await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
+      collector.stop();
+      return;
+    }
 
-// ---- START BUTTON ----
-if (i.customId === 'gw_start') {
-  try {
-    if (!i.deferred && !i.replied) await i.deferUpdate().catch(() => {});
-  } catch {}
+    // ---- START BUTTON ----
+    if (i.customId === 'gw_start') {
+      try {
+        if (!i.deferred && !i.replied) await i.deferUpdate().catch(() => {});
+      } catch {}
 
-  const start = Date.now();
-  const end = start + durationMs;
+      const start = Date.now();
+      const end = start + durationMs;
 
-  const gwEmbed = new EmbedBuilder()
-    .setTitle(`🎉 ${prize}`)
-    .setDescription(
-      `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
-        end / 1000
-      )}:R>\n\nClick 🎉 to enter!`
-    )
-    .setColor(0xffc107)
-    .setTimestamp(new Date(end));
+      const gwEmbed = new EmbedBuilder()
+        .setTitle(`🎉 ${prize}`)
+        .setDescription(
+          `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
+            end / 1000
+          )}:R>\n\nClick 🎉 to enter!`
+        )
+        .setColor(0xffc107)
+        .setTimestamp(new Date(end));
 
-  const joinRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
-  );
+      const joinRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
+      );
 
-  const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
+      const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
 
-  giveaways[gwMsg.id] = {
-    prize,
-    hostId: message.author.id,
-    winnersCount,
-    end,
-    participants: [],
-    channelId: message.channel.id,
-    guildId: message.guild.id,
-    active: true,
-  };
-  saveGiveaways();
-  scheduleGiveawayEnd(client, gwMsg.id);
+      giveaways[gwMsg.id] = {
+        prize,
+        hostId: message.author.id,
+        winnersCount,
+        end,
+        participants: [],
+        channelId: message.channel.id,
+        guildId: message.guild.id,
+        active: true,
+      };
+      saveGiveaways();
+      scheduleGiveawayEnd(client, gwMsg.id);
 
-  // send confirmation only if the interaction isn't already responded
-  if (!i.replied && !i.deferred) {
-    await safeReply(i, { content: `✅ Giveaway started for **${prize}**!`, embeds: [], components: [] }).catch(() => {});
-  } else {
-    await message.channel.send(`✅ Giveaway started for **${prize}**!`);
-  }
-});
-  return;
+      if (!i.replied && !i.deferred) {
+        await safeReply(i, { content: `✅ Giveaway started for **${prize}**!`, embeds: [], components: [] }).catch(() => {});
+      } else {
+        await message.channel.send(`✅ Giveaway started for **${prize}**!`);
+      }
+    }
+  }); // ✅ <- correct closing
+
+  return; // ✅ properly ends subCmd block
 }
 
       // ---- Giveaway Delete ----
@@ -2221,3 +2175,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
