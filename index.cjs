@@ -1803,12 +1803,12 @@ await logActionStructured({
             return message.channel.send('❌ Failed to assign mute role.');
           }
 
-          await message.channel.send(`✅ ${target.user.tag} muted for ${durationStr}. Reason: ${reason}`);
+          await message.channel.send(`✅ ${user.user.tag} muted for ${durationStr}. Reason: ${reason}`);
 
           await logActionStructured({
             command: '.mute',
             message,
-            details: `${target.user.tag} muted. Reason: ${reason}. Duration: ${durationStr}`,
+            details: `${user.user.tag} muted. Reason: ${reason}. Duration: ${durationStr}`,
             channelId: MOD_LOG_CHANNEL_ID
           });
 
@@ -1863,12 +1863,12 @@ await logActionStructured({
             return message.channel.send('❌ Failed to unmute user (role removal failed).');
           }
 
-          await message.channel.send(`✅ ${target.user.tag} has been unmuted. Reason: ${reason}`);
+          await message.channel.send(`✅ ${user.user.tag} has been unmuted. Reason: ${reason}`);
 
           await logActionStructured({
             command: '.unmute',
             message,
-            details: `${target.user.tag} unmuted by ${message.author.tag}. Reason: ${reason}`,
+            details: `${user.user.tag} unmuted by ${message.author.tag}. Reason: ${reason}`,
             channelId: MOD_LOG_CHANNEL_ID
           });
 
@@ -2084,3 +2084,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
