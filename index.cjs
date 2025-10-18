@@ -879,98 +879,42 @@ if (subCmd === 'create') {
   if (isNaN(winnersCount) || winnersCount < 1)
     return message.channel.send('⚠️ Winners must be a number ≥ 1.');
 
-  const controlEmbed = new EmbedBuilder()
-    .setTitle('🎁 Giveaway Setup')
-    .setDescription(`**Prize:** ${prize}\n**Winners:** ${winnersCount}\n**Duration:** ${durationRaw}`)
-    .setFooter({ text: `Host: ${message.author.tag}` })
-    .setColor(0x2b6cb0);
+  const start = Date.now();
+  const end = start + durationMs;
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('gw_start').setLabel('Start').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('gwsetup_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
+  const gwEmbed = new EmbedBuilder()
+    .setTitle(`🎉 ${prize}`)
+    .setDescription(
+      `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
+        end / 1000
+      )}:R>\n\nClick 🎉 to enter!`
+    )
+    .setColor(0xffc107)
+    .setTimestamp(new Date(end));
+
+  const joinRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
   );
 
-  const setupMsg = await message.channel.send({ embeds: [controlEmbed], components: [row] });
+  // Post the giveaway message immediately (no preview / edit buttons)
+  const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
 
-  const collector = setupMsg.createMessageComponentCollector({
-    componentType: ComponentType.Button,
-    time: 600000,
-  });
+  giveaways[gwMsg.id] = {
+    prize,
+    hostId: message.author.id,
+    winnersCount,
+    end,
+    participants: [],
+    channelId: message.channel.id,
+    guildId: message.guild.id,
+    active: true,
+  };
+  saveGiveaways();
+  scheduleGiveawayEnd(client, gwMsg.id);
 
-  collector.on('collect', async (i) => {
-    // Only host can use
-    if (i.user.id !== message.author.id)
-      return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
-
-    // ---- CANCEL BUTTON ----
-    if (i.customId === 'gwsetup_cancel') {
-      await i.deferUpdate().catch(() => {});
-      await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
-      collector.stop();
-      return;
-    }
-
-    // ---- START BUTTON ----
-    if (i.customId === 'gw_start') {
-      try {
-        if (!i.deferred && !i.replied) {
-          await i.deferUpdate().catch(() => {});
-        }
-      } catch (err) {
-        console.error('⚠️ Error deferring interaction:', err);
-      }
-
-      const start = Date.now();
-      const end = start + durationMs;
-
-      const gwEmbed = new EmbedBuilder()
-        .setTitle(`🎉 ${prize}`)
-        .setDescription(
-          `**Host:** ${message.author}\n**Winners:** ${winnersCount}\n**Time left:** <t:${Math.floor(
-            end / 1000
-          )}:R>\n\nClick 🎉 to enter!`
-        )
-        .setColor(0xffc107)
-        .setTimestamp(new Date(end));
-
-      const joinRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('gw_join').setLabel('🎉 Join').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('gw_participants').setLabel('👥 Participants').setStyle(ButtonStyle.Secondary)
-      );
-
-      const gwMsg = await message.channel.send({ embeds: [gwEmbed], components: [joinRow] });
-
-      giveaways[gwMsg.id] = {
-        prize,
-        hostId: message.author.id,
-        winnersCount,
-        end,
-        participants: [],
-        channelId: message.channel.id,
-        guildId: message.guild.id,
-        active: true,
-      };
-      saveGiveaways();
-      scheduleGiveawayEnd(client, gwMsg.id);
-
-      if (!i.replied && !i.deferred) {
-        await safeReply(i, { content: `✅ Giveaway started for **${prize}**!`, embeds: [], components: [] }).catch(() => {});
-      } else {
-        await message.channel.send(`✅ Giveaway started for **${prize}**!`);
-      }
-    }
-  });
-
-  // ensure collector end tidies up the setup message components
-  collector.on('end', async () => {
-    try {
-      if (setupMsg.editable) await setupMsg.edit({ components: [] }).catch(() => {});
-    } catch (e) {}
-  });
-
-  return; // ends subCmd === 'create'
-} // end subCmd create
-
+  return message.channel.send(`✅ Giveaway started for **${prize}**!`);
+} // end subCmd === 'create'
 
 // ---- Giveaway Delete ----
 if (subCmd === 'delete') {
@@ -2115,55 +2059,55 @@ client.on('interactionCreate', async interaction => {
 });
 
 // -------------------- Global Giveaway Edit Modal Handler --------------------
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isModalSubmit()) return;
-  if (!interaction.customId.startsWith('gw_setup_edit_modal_')) return;
+// client.on('interactionCreate', async interaction => {
+//   if (!interaction.isModalSubmit()) return;
+//   if (!interaction.customId.startsWith('gw_setup_edit_modal_')) return;
 
-  try {
-    const [, , setupMsgId] = interaction.customId.split('_');
+//   try {
+//     const [, , setupMsgId] = interaction.customId.split('_');
 
-    const newPrize = interaction.fields.getTextInputValue('edit_prize');
-    const newDurationRaw = interaction.fields.getTextInputValue('edit_duration');
-    const newWinnersRaw = interaction.fields.getTextInputValue('edit_winners');
+//     const newPrize = interaction.fields.getTextInputValue('edit_prize');
+//     const newDurationRaw = interaction.fields.getTextInputValue('edit_duration');
+//     const newWinnersRaw = interaction.fields.getTextInputValue('edit_winners');
 
-    const durationMatch = newDurationRaw.match(/^(\d+)([dhms])$/i);
-    if (!durationMatch)
-      return interaction.reply({ content: '⚠️ Invalid duration. Use 1d / 2h / 30m / 45s.', flags: 64 });
+//     const durationMatch = newDurationRaw.match(/^(\d+)([dhms])$/i);
+//     if (!durationMatch)
+//       return interaction.reply({ content: '⚠️ Invalid duration. Use 1d / 2h / 30m / 45s.', flags: 64 });
 
-    const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-    const newDurationMs = parseInt(durationMatch[1]) * unitMs[durationMatch[2].toLowerCase()];
+//     const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+//     const newDurationMs = parseInt(durationMatch[1]) * unitMs[durationMatch[2].toLowerCase()];
 
-    const newWinners = parseInt(newWinnersRaw);
-    if (isNaN(newWinners) || newWinners < 1)
-      return interaction.reply({ content: '⚠️ Winners must be a number ≥ 1.', flags: 64 });
+//     const newWinners = parseInt(newWinnersRaw);
+//     if (isNaN(newWinners) || newWinners < 1)
+//       return interaction.reply({ content: '⚠️ Winners must be a number ≥ 1.', flags: 64 });
 
-    // Store updated setup data per message
-    if (!global.tempGiveawaySetup) global.tempGiveawaySetup = {};
-    global.tempGiveawaySetup[setupMsgId] = {
-      prize: newPrize,
-      durationRaw: newDurationRaw,
-      durationMs: newDurationMs,
-      winnersCount: newWinners,
-      hostId: interaction.user.id,
-    };
+//     // Store updated setup data per message
+//     if (!global.tempGiveawaySetup) global.tempGiveawaySetup = {};
+//     global.tempGiveawaySetup[setupMsgId] = {
+//       prize: newPrize,
+//       durationRaw: newDurationRaw,
+//       durationMs: newDurationMs,
+//       winnersCount: newWinners,
+//       hostId: interaction.user.id,
+//     };
 
-    // 🟢 Try updating the original setup preview
-    const setupMsg = await interaction.channel.messages.fetch(setupMsgId).catch(() => null);
-    if (setupMsg) {
-      const embed = EmbedBuilder.from(setupMsg.embeds[0])
-        .setDescription(`**Prize:** ${newPrize}\n**Winners:** ${newWinners}\n**Duration:** ${newDurationRaw}`)
-        .setFooter({ text: `Host: ${interaction.user.tag}` })
-        .setColor(0x2b6cb0);
-      await setupMsg.edit({ embeds: [embed] }).catch(() => {});
-    }
+//     // 🟢 Try updating the original setup preview
+//     const setupMsg = await interaction.channel.messages.fetch(setupMsgId).catch(() => null);
+//     if (setupMsg) {
+//       const embed = EmbedBuilder.from(setupMsg.embeds[0])
+//         .setDescription(`**Prize:** ${newPrize}\n**Winners:** ${newWinners}\n**Duration:** ${newDurationRaw}`)
+//         .setFooter({ text: `Host: ${interaction.user.tag}` })
+//         .setColor(0x2b6cb0);
+//       await setupMsg.edit({ embeds: [embed] }).catch(() => {});
+//     }
 
-    await interaction.reply({ content: '✅ Giveaway setup updated successfully.', flags: 64 });
-  } catch (err) {
-    console.error('❌ Modal submission failed:', err);
-    if (!interaction.replied)
-      await interaction.reply({ content: '❌ Failed to update giveaway.', flags: 64 }).catch(() => {});
-  }
-});
+//     await interaction.reply({ content: '✅ Giveaway setup updated successfully.', flags: 64 });
+//   } catch (err) {
+//     console.error('❌ Modal submission failed:', err);
+//     if (!interaction.replied)
+//       await interaction.reply({ content: '❌ Failed to update giveaway.', flags: 64 }).catch(() => {});
+//   }
+// });
 
       // -------------------- Auto-role on member join --------------------
       const AUTO_ROLE_ID = '1424213161262841857';
@@ -2199,6 +2143,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
