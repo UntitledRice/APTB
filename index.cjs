@@ -1274,7 +1274,7 @@ if (subCmd === 'edit') {
       await logActionStructured({
         command: '.bypass',
         message,
-        details: `AutoMod bypass toggled for ${target.tag} by ${message.author.tag}`,
+        details: `Toggled bypass for ${target.tag} (now ${bypassList[target.id] ? 'ENABLED' : 'DISABLED'})`,
         channelId: MOD_LOG_CHANNEL_ID
       });
     }
@@ -1897,38 +1897,79 @@ await logActionStructured({
       }
       }); // closes client.on('messageCreate')
 
-// ---------- Central interaction handler (cleaned) ----------
-client.on('interactionCreate', async interaction => {
+// ---------- Unified interaction handler (modal + buttons) ----------
+client.on('interactionCreate', async (interaction) => {
   try {
-    // ---------- Modal: removeWarnModal_ ----------
-    if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('removeWarnModal_')) {
-      const [, uid, indexStr] = interaction.customId.split('_');
-      const index = parseInt(indexStr);
-      const reason = interaction.fields.getTextInputValue('removeReason');
-      const userWarns = warnings[uid] || [];
-      if (index >= userWarns.length) return interaction.reply({ content: '❌ Warning not found.', flags: 64 });
-      userWarns.splice(index, 1);
-      await saveWarnings().catch(() => {});
-      try {
-        const member = interaction.guild ? await interaction.guild.members.fetch(uid).catch(() => null) : null;
-        if (member) {
-          await member.send({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle('⚠️ Warning Removed')
-                .setColor(0x2b6cb0)
-                .setDescription(`A warning was removed by staff.\n\n**Reason:** ${reason}`)
-                .setTimestamp(),
-            ],
-          }).catch(() => {});
+    // ----- 1) Modal submissions -----
+    // Use method form for v14
+    if (typeof interaction.isModalSubmit === 'function' && interaction.isModalSubmit()) {
+      // removeWarnModal_<uid>_<index>
+      if (interaction.customId && interaction.customId.startsWith('removeWarnModal_')) {
+        try {
+          const [, uid, indexStr] = interaction.customId.split('_');
+          const index = parseInt(indexStr, 10);
+          const reason = interaction.fields.getTextInputValue('removeReason');
+          const userWarns = warnings[uid] || [];
+          if (isNaN(index) || index < 0 || index >= userWarns.length) {
+            return interaction.reply({ content: '❌ Warning not found.', flags: 64 });
+          }
+          userWarns.splice(index, 1);
+          await saveWarnings().catch(() => {});
+          // try to DM the user (best-effort)
+          try {
+            const member = interaction.guild ? await interaction.guild.members.fetch(uid).catch(() => null) : null;
+            if (member) {
+              await member.send({
+                embeds: [
+                  new EmbedBuilder()
+                    .setTitle('⚠️ Warning Removed')
+                    .setColor(0x2b6cb0)
+                    .setDescription(`A warning was removed by staff.\n\n**Reason:** ${reason}`)
+                    .setTimestamp(),
+                ],
+              }).catch(() => {});
+            }
+          } catch (e) { /* ignore DM errors */ }
+
+          return interaction.reply({ content: '✅ Warning removed and records updated.', flags: 64 });
+        } catch (err) {
+          console.error('Error handling removeWarnModal:', err);
+          return interaction.reply({ content: '❌ Failed to process modal submission.', flags: 64 });
         }
-      } catch (e) { /* ignore DM errors */ }
-      return interaction.reply({ content: '✅ Warning removed and records updated.', flags: 64 });
+      }
+
+      // If you have other modals, add their handlers here (check interaction.customId)
     }
 
-    // ---------- Button interactions (giveaways) ----------
-    if (interaction.isButton && interaction.customId) {
+    // ----- 2) Button interactions -----
+    // Use method form when available, fallback to property when not.
+    const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
+    if (isButton && interaction.customId) {
       const customId = interaction.customId;
+
+      // Helper: update giveaway embed (safe, best-effort)
+      async function updateGiveawayEmbed(msgId) {
+        try {
+          const gwData = giveaways[msgId];
+          if (!gwData) return;
+          const ch = await client.channels.fetch(gwData.channelId).catch(() => null);
+          if (!ch) return;
+          const gm = await ch.messages.fetch(msgId).catch(() => null);
+          if (!gm) return;
+          const embed = new EmbedBuilder()
+            .setTitle(`🎉 ${gwData.prize}`)
+            .setDescription(
+              `**Host:** <@${gwData.hostId}>\n**Winners:** ${gwData.winnersCount}\n**Participants:** ${gwData.participants.length}\n**Time left:** <t:${Math.floor(
+                gwData.end / 1000
+              )}:R>\n\nClick 🎉 to enter!`
+            )
+            .setColor(0xffc107)
+            .setTimestamp(new Date(gwData.end));
+          await gm.edit({ embeds: [embed] }).catch(() => {});
+        } catch (err) {
+          console.error('Failed to update giveaway embed:', err);
+        }
+      }
 
       // ---- JOIN ----
       if (customId === 'gw_join') {
@@ -1937,12 +1978,20 @@ client.on('interactionCreate', async interaction => {
         if (!gw || !gw.active) return interaction.reply({ content: '❌ Giveaway not found or ended.', flags: 64 });
         if (giveawayBans[interaction.user.id]) return interaction.reply({ content: '🚫 Banned from giveaways.', flags: 64 });
 
+        // Already joined -> show leave option
+        if (gw.participants.includes(interaction.user.id)) {
+          const leaveRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`gw_leave_${msgId}`).setLabel('Leave Giveaway').setStyle(ButtonStyle.Danger)
+          );
+          return interaction.reply({ content: '⚠️ You are already entered in this giveaway.', components: [leaveRow], flags: 64 });
+        }
+
         if (giveawayLocks.has(msgId)) return interaction.reply({ content: '⏳ Processing — try again shortly.', flags: 64 });
         giveawayLocks.add(msgId);
         try {
           if (!gw.participants.includes(interaction.user.id)) {
             gw.participants.push(interaction.user.id);
-            saveGiveaways().catch(() => {});
+            await saveGiveaways().catch(() => {});
           }
           await updateGiveawayEmbed(msgId).catch(() => {});
           const leaveRow = new ActionRowBuilder().addComponents(
@@ -1954,7 +2003,7 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      // ---- LEAVE ---- (gw_leave_<msgId>)
+      // ---- LEAVE (gw_leave_<msgId>) ----
       if (customId.startsWith('gw_leave_')) {
         const parts = customId.split('_');
         const leaveMsgId = parts.slice(2).join('_');
@@ -1967,7 +2016,7 @@ client.on('interactionCreate', async interaction => {
           const idx = gwLeave.participants.indexOf(interaction.user.id);
           if (idx === -1) return interaction.reply({ content: '⚠️ You are not entered in this giveaway.', flags: 64 });
           gwLeave.participants.splice(idx, 1);
-          saveGiveaways().catch(() => {});
+          await saveGiveaways().catch(() => {});
           await updateGiveawayEmbed(leaveMsgId).catch(() => {});
           return interaction.reply({ content: `🗑️ You have left the giveaway **${gwLeave.prize}**.`, flags: 64 });
         } finally {
@@ -1982,15 +2031,18 @@ client.on('interactionCreate', async interaction => {
         if (!gw) return interaction.reply({ content: '❌ Giveaway not found.', flags: 64 });
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
         if (!member || !member.roles.cache.has(STAFF_ROLE_ID)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
-        const list = gw.participants.length ? gw.participants.map(id => `<@${id}>`).join('\n') : 'No participants yet.';
+        const list = gw.participants.length ? gw.participants.map((id) => `<@${id}>`).join('\n') : 'No participants yet.';
         const embed = new EmbedBuilder().setTitle('🎟️ Giveaway Participants').setDescription(list).setColor(0x2b6cb0);
         return interaction.reply({ embeds: [embed], flags: 64 });
       }
+
+      // Add more button handlers here as needed (e.g., preview edit buttons if you re-enable them)
     }
 
-    // other interaction flows can be added below safely
+    // If you have other interaction types (e.g., select menus) add them below
+
   } catch (err) {
-    console.error('Giveaway interaction error:', err);
+    console.error('Unified interaction handler error:', err);
     try {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({ content: '❌ An error occurred handling that action.', flags: 64 });
@@ -2084,4 +2136,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
