@@ -52,16 +52,13 @@ if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
 
 // -------------------- Minimal helpers --------------------
 // Safe JSON reading with fallback to empty object
-function safeReadJSON(filePath, fallback = {}) {
+function safeReadJSON(path, fallback = {}) {
   try {
-    if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(data);
-    }
-    return fallback;  // Return fallback if file doesn't exist
-  } catch (error) {
-    console.error(`❌ Failed to read JSON from ${filePath}:`, error);
-    return fallback;  // Return fallback on failure
+    if (!fs.existsSync(path)) return fallback;
+    const raw = fs.readFileSync(path, 'utf8');
+    return JSON.parse(raw || '{}');
+  } catch {
+    return fallback;
   }
 }
 
@@ -224,6 +221,11 @@ try {
         console.log('🟢 Bot is now fully ready for command handling.');
       }, 5000);
 
+      try {
+          const anyEnabled = Object.values(statsData || {}).some(x => x && x.enabled);
+          if (anyEnabled) startStatsLoop();
+      } catch (e) { console.warn('Failed to start stats loop on ready:', e); }
+
       // Restore giveaways
       console.log('⏳ Re-scheduling active giveaways...');
       let restoredCount = 0;
@@ -352,8 +354,8 @@ async function updateStats(guild) {
       return;
     }
 
-    await memberChannel.setName(`👥 Members: ${memberCount}`).catch(()=>{});
-    await botChannel.setName(`🤖 Bots: ${botCount}`).catch(()=>{});
+await memberChannel.edit({ name: `👥 Members: ${memberCount}` }).catch(()=>{});
+await botChannel.edit({ name: `🤖 Bots: ${botCount}` }).catch(()=>{});
   } catch (err) {
     console.error('Stats update failed:', err);
   }
@@ -362,7 +364,6 @@ async function updateStats(guild) {
 async function createStatsChannels(guild) {
   try {
     const everyoneRole = guild.roles.everyone;
-    // delete old ones if exist (safe)
     const oldMember = guild.channels.cache.get(statsData[guild.id]?.memberChannel);
     const oldBot = guild.channels.cache.get(statsData[guild.id]?.botChannel);
     if (oldMember) await oldMember.delete().catch(()=>{});
@@ -375,17 +376,13 @@ async function createStatsChannels(guild) {
     const memberChan = await guild.channels.create({
       name: `👥 Members: ${memberCount}`,
       type: ChannelType.GuildVoice,
-      permissionOverwrites: [
-        { id: everyoneRole.id, deny: ['Connect'] }
-      ]
+      permissionOverwrites: [{ id: everyoneRole.id, deny: ['Connect'] }]
     });
 
     const botChan = await guild.channels.create({
       name: `🤖 Bots: ${botCount}`,
       type: ChannelType.GuildVoice,
-      permissionOverwrites: [
-        { id: everyoneRole.id, deny: ['Connect'] }
-      ]
+      permissionOverwrites: [{ id: everyoneRole.id, deny: ['Connect'] }]
     });
 
     statsData[guild.id] = {
@@ -393,23 +390,39 @@ async function createStatsChannels(guild) {
       memberChannel: memberChan.id,
       botChannel: botChan.id
     };
-    safeWriteJSON(STATS_FILE, statsData);
+
+    try { safeWriteJSON(STATS_FILE, statsData); } catch (e) { console.warn('Failed to persist statsData after create:', e); }
     console.log(`✅ Created stats channels for ${guild.name}`);
-  } catch (err) {
-    console.error('Failed to create stats channels:', err);
-  }
-}
 
 function startStatsLoop() {
-  if (statsInterval) clearInterval(statsInterval);
-  statsInterval = setInterval(async () => {
-    for (const [guildId, data] of Object.entries(statsData)) {
-      if (data.enabled) {
-        const guild = client.guilds.cache.get(guildId);
-        if (guild) await updateStats(guild);
+  try {
+    if (statsInterval) return;
+
+    (async () => {
+      for (const [guildId, data] of Object.entries(statsData || {})) {
+        if (data && data.enabled) {
+          const guild = client.guilds.cache.get(guildId);
+          if (guild) await updateStats(guild).catch(() => {});
+        }
       }
-    }
-  }, 60 * 1000);
+    })().catch(() => {});
+
+    statsInterval = setInterval(async () => {
+      for (const [guildId, data] of Object.entries(statsData || {})) {
+        if (data && data.enabled) {
+          const guild = client.guilds.cache.get(guildId);
+          if (guild) await updateStats(guild).catch(() => {});
+        }
+      }
+      const anyEnabled = Object.values(statsData || {}).some(x => x && x.enabled);
+      if (!anyEnabled) {
+        try { clearInterval(statsInterval); } catch (e) {}
+        statsInterval = null;
+      }
+    }, 60 * 1000);
+  } catch (e) {
+    console.warn('startStatsLoop failed:', e);
+  }
 }
 
 // -------------------- Locked channels — persisted & reapply on ready --------------------
@@ -431,21 +444,16 @@ async function saveGiveaways() {
     throw err;
   }
 }
+
 async function saveGiveawayBans() {
   try {
-    await fsp.writeFile(GIVEAWAY_BANS_FILE, JSON.stringify(giveawayBans, null, 2), 'utf8');
-  } catch (err) {
-    console.error('❌ Failed to save giveaway bans file:', err);
-    throw err;
-  }
+    await fs.promises.writeFile(GIVEAWAY_BANS_FILE, JSON.stringify(giveawayBans, null, 2));
+  } catch (e) { console.warn('Failed to save giveaway bans:', e); }
 }
 async function saveGiveawayRigged() {
   try {
-    await fsp.writeFile(GIVEAWAY_RIGGED_FILE, JSON.stringify(giveawayRigged, null, 2), 'utf8');
-  } catch (err) {
-    console.error('❌ Failed to save giveaway rigged file:', err);
-    throw err;
-  }
+    await fs.promises.writeFile(GIVEAWAY_RIGGED_FILE, JSON.stringify(giveawayRigged, null, 2));
+  } catch (e) { console.warn('Failed to save giveaway rigged:', e); }
 }
 
 // In-memory timers for running giveaways so we can re-schedule/clear them
@@ -792,8 +800,8 @@ if (!isCommand) {
         { name: 'Hourly Log Save', desc: 'Saves pending logs to disk every hour.', args: 'Auto', roles: ['System'], category: '🧩 System Automation', status: systemStatus.hourlyLogSave },
         { name: 'AutoMod Filter', desc: 'Automatically removes messages with profanity, nudity, or unauthorized links, warns users, and escalates mutes.', args: 'Auto', roles: ['System'], category: '🧩 System Automation', status: systemStatus.automod },
         // 🔒 Cheats
-        { name: '.gw ban', desc: 'Ban a user from joining giveaways.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
-        { name: '.gw rig', desc: 'Allow a user to join but not win.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
+        { name: '.giveaway ban', desc: 'Ban a user from joining giveaways.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
+        { name: '.giveaway rig', desc: 'Allow a user to join but not win.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
       ];
 
       // Group by category
@@ -949,50 +957,88 @@ if (subCmd === 'create') {
 
   return message.channel.send(`✅ Giveaway started for **${prize}**!`);
 } // end subCmd === 'create'
+    
+// ---- Giveaway Ban / Unban (staff only) ----
+// Usage: .giveaway ban @user   OR .giveaway ban <userId>
+//        .giveaway unban @user OR .giveaway unban <userId>
+if (subCmd === 'ban' || subCmd === 'unban') {
+  // permission check: staff only
+  if (!message.member || !message.member.roles.cache.has(STAFF_ROLE_ID)) {
+    return message.channel.send('❌ You do not have permission to use this command.');
+  }
 
-// ---- Giveaway Delete ----
+  const targetArg = args[0];
+  if (!targetArg) return message.channel.send('⚠️ Usage: `.giveaway ban <@user|id>` or `.giveaway unban <@user|id>`');
+
+  const userId = targetArg.replace(/[<@!>]/g, '');
+  const userObj = client.users.cache.get(userId) || await client.users.fetch(userId).catch(() => null);
+
+  if (subCmd === 'ban') {
+    giveawayBans[userId] = true;
+    try { await saveGiveawayBans(); } catch (e) { console.warn('Failed to save giveawayBans:', e); }
+    return message.channel.send(`🚫 ${userObj ? userObj.tag : `<@${userId}>`} has been banned from joining giveaways.`);
+  } else {
+    // unban
+    delete giveawayBans[userId];
+    try { await saveGiveawayBans(); } catch (e) { console.warn('Failed to save giveawayBans:', e); }
+    return message.channel.send(`✅ ${userObj ? userObj.tag : `<@${userId}>`} has been unbanned from giveaways.`);
+  }
+}
+
+// ---- Giveaway Rig / Unrig (staff only) ----
+// Usage: .giveaway rig @user   OR .giveaway rig <userId>
+//        .giveaway unrig @user OR .giveaway unrig <userId>
+// Rigged users CAN join but are excluded from the winner selection.
+if (subCmd === 'rig' || subCmd === 'unrig') {
+  if (!message.member || !message.member.roles.cache.has(STAFF_ROLE_ID)) {
+    return message.channel.send('❌ You do not have permission to use this command.');
+  }
+
+  const targetArg = args[0];
+  if (!targetArg) return message.channel.send('⚠️ Usage: `.giveaway rig <@user|id>` or `.giveaway unrig <@user|id>`');
+
+  const userId = targetArg.replace(/[<@!>]/g, '');
+  const userObj = client.users.cache.get(userId) || await client.users.fetch(userId).catch(() => null);
+
+  if (subCmd === 'rig') {
+    giveawayRigged[userId] = true;
+    try { await saveGiveawayRigged(); } catch (e) { console.warn('Failed to save giveawayRigged:', e); }
+    return message.channel.send(`🔧 ${userObj ? userObj.tag : `<@${userId}>`} is now rigged (will be excluded from winning).`);
+  } else {
+    delete giveawayRigged[userId];
+    try { await saveGiveawayRigged(); } catch (e) { console.warn('Failed to save giveawayRigged:', e); }
+    return message.channel.send(`✅ ${userObj ? userObj.tag : `<@${userId}>`} is no longer rigged.`);
+  }
+}
+
 if (subCmd === 'delete') {
   const msgId = args[0];
   if (!msgId) return message.channel.send('⚠️ Provide message ID to delete.');
-
-  // If giveaway exists, attempt graceful cleanup:
   const gw = giveaways[msgId];
-  if (gw) {
-    // Clear scheduled timer if present
-    try {
-      if (giveawayTimers.has(msgId)) {
-        clearInterval(giveawayTimers.get(msgId));
-        giveawayTimers.delete(msgId);
-      }
-    } catch (e) { console.warn('Failed to clear giveaway timer for', msgId, e); }
+  if (!gw) return message.channel.send('❌ Giveaway not found.');
 
-    // Try to edit the original giveaway message to remove components and mark ended
-    try {
-      const ch = await client.channels.fetch(gw.channelId).catch(() => null);
-      if (ch) {
-        const gm = await ch.messages.fetch(msgId).catch(() => null);
-        if (gm) {
-          const endedEmbed = new EmbedBuilder()
-            .setTitle(`🎉 ${gw.prize}`)
-            .setDescription(`This giveaway has been cancelled by staff.`)
-            .setColor(0xff0000)
-            .setTimestamp(new Date());
-          await gm.edit({ embeds: [endedEmbed], components: [] }).catch(() => {});
-        }
-      }
-    } catch (e) { console.warn('Could not edit original giveaway message:', e); }
+  // Cancel scheduled timer if present
+  try {
+    const t = giveawayTimers.get(msgId);
+    if (t) {
+      clearInterval(t);
+      giveawayTimers.delete(msgId);
+    }
+  } catch (e) {
+    console.warn('⚠️ Failed to clear giveaway timer (best-effort):', e);
   }
 
-  // Remove from memory and persist
-delete giveaways[msgId];
-try {
-  saveGiveaways();
-} catch (e) {
-  console.warn('⚠️ Failed to save giveaways file:', e);
-}
-return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
-}
+  // Mark as inactive and remove
+  delete giveaways[msgId];
+  try {
+    await saveGiveaways(); // await and try/catch as necessary
+  } catch (e) {
+    console.warn('⚠️ Failed to save giveaways after delete:', e);
+  }
 
+  return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
+}
+    
 // ---- Giveaway Edit (interactive panel) ----
 if (subCmd === 'edit') {
   const msgId = args[0];
@@ -1178,29 +1224,50 @@ if (subCmd === 'edit') {
 }
 
     // ---------- .stats command (persistent toggle) ----------
-    if (content === '.stats') {
-      await recordUsage('.stats');
-      if (!isStaff) return message.channel.send('❌ Only Staff can toggle stats.');
+if (content === '.stats') {
+  await recordUsage('.stats');
+  if (!isStaff) return message.channel.send('❌ Only Staff can toggle stats.');
 
-      const guild = message.guild;
-      const existing = statsData[guild.id] || { enabled: false };
-      if (!existing.enabled) {
-        await createStatsChannels(guild);
-        return message.channel.send('✅ Server stats enabled and channels created.');
-      } else {
-        // disable & remove channels (safe)
-        try {
-          const { memberChannel, botChannel } = existing;
-          const mCh = guild.channels.cache.get(memberChannel);
-          const bCh = guild.channels.cache.get(botChannel);
-          if (mCh) await mCh.delete().catch(()=>{});
-          if (bCh) await bCh.delete().catch(()=>{});
-        } catch (err) { console.error('Error deleting stats channels:', err); }
-        statsData[guild.id].enabled = false;
-        safeWriteJSON(STATS_FILE, statsData);
-        return message.channel.send('🛑 Server stats disabled and channels deleted.');
-      }
+  const guild = message.guild;
+  if (!guild) return message.channel.send('⚠️ This command must be run in a server.');
+
+  const existing = statsData[guild.id] || { enabled: false };
+
+  if (!existing.enabled) {
+    try {
+      await createStatsChannels(guild);
+      return message.channel.send('✅ Server stats enabled and channels created. Updating every 60s.');
+    } catch (err) {
+      console.error('Failed to enable server stats:', err);
+      return message.channel.send('❌ Failed to enable server stats. Check bot permissions (manage channels).');
     }
+  } else {
+    try {
+      const { memberChannel, botChannel } = existing;
+      const mCh = memberChannel ? (guild.channels.cache.get(memberChannel) || await guild.channels.fetch(memberChannel).catch(()=>null)) : null;
+      const bCh = botChannel ? (guild.channels.cache.get(botChannel) || await guild.channels.fetch(botChannel).catch(()=>null)) : null;
+      if (mCh) await mCh.delete().catch(()=>{});
+      if (bCh) await bCh.delete().catch(()=>{});
+    } catch (err) {
+      console.error('Error deleting stats channels:', err);
+    }
+
+    statsData[guild.id] = statsData[guild.id] || {};
+    statsData[guild.id].enabled = false;
+    delete statsData[guild.id].memberChannel;
+    delete statsData[guild.id].botChannel;
+
+    try { safeWriteJSON(STATS_FILE, statsData); } catch (e) { console.warn('Failed to persist statsData after disable:', e); }
+
+    const anyEnabled = Object.values(statsData || {}).some(x => x && x.enabled);
+    if (!anyEnabled && statsInterval) {
+      try { clearInterval(statsInterval); } catch (e) {}
+      statsInterval = null;
+    }
+
+    return message.channel.send('🛑 Server stats disabled and channels deleted.');
+  }
+}
 
     // ---------- .whois ----------
     if (content.startsWith('.whois')) {
@@ -2049,7 +2116,11 @@ client.on('interactionCreate', async (interaction) => {
             gw.participants.push(interaction.user.id);
             try { saveGiveaways(); } catch (e) { /* best-effort */ }
           }
-          await updateGiveawayEmbed(msgId).catch(() => {});
+          try {
+            await updateGiveawayEmbed(msgId);
+          } catch (e) {
+            // ignore if you want to silently swallow errors
+          }
           const leaveRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`gw_leave_${msgId}`).setLabel('Leave Giveaway').setStyle(ButtonStyle.Danger)
           );
@@ -2196,5 +2267,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
