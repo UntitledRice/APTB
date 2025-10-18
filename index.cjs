@@ -986,7 +986,7 @@ if (subCmd === 'delete') {
   // Remove from memory and persist
 delete giveaways[msgId];
 try {
-  await saveGiveaways();
+  saveGiveaways();
 } catch (e) {
   console.warn('⚠️ Failed to save giveaways file:', e);
 }
@@ -2021,7 +2021,9 @@ client.on('interactionCreate', async (interaction) => {
             )
             .setColor(0xffc107)
             .setTimestamp(new Date(gwData.end));
-          await gm.edit({ embeds: [embed] }).catch(() => {});
+          // preserve components so buttons remain active and unchanged
+        const existingComponents = (gm.components && gm.components.length) ? gm.components : [];
+        await gm.edit({ embeds: [embed], components: existingComponents }).catch(() => {});
         } catch (err) {
           console.error('Failed to update giveaway embed:', err);
         }
@@ -2047,7 +2049,7 @@ client.on('interactionCreate', async (interaction) => {
         try {
           if (!gw.participants.includes(interaction.user.id)) {
           gw.participants.push(interaction.user.id);
-          try { await saveGiveaways(); } catch(e) { /* best-effort */ }
+          try { saveGiveaways(); } catch(e) { /* best-effort */ }
           await updateGiveawayEmbed(msgId).catch(() => {});
           const leaveRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`gw_leave_${msgId}`).setLabel('Leave Giveaway').setStyle(ButtonStyle.Danger)
@@ -2072,7 +2074,7 @@ client.on('interactionCreate', async (interaction) => {
           if (idx === -1) return interaction.reply({ content: '⚠️ You are not entered in this giveaway.', flags: 64 });
           gwLeave.participants.splice(idx, 1);
           try {
-            await saveGiveaways();
+            saveGiveaways();
           } catch (e) {
             console.warn('⚠️ Failed to save giveaways file:', e);
           }
@@ -2195,4 +2197,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
