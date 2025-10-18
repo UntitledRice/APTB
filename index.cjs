@@ -985,140 +985,150 @@ if (subCmd === 'create') {
         return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
       }
 
-      // ---- Giveaway Edit (interactive panel) ----
-      if (subCmd === 'edit') {
-        const msgId = args[0];
-        if (!msgId) return message.channel.send('⚠️ Provide a giveaway message ID to edit.');
-        const gw = giveaways[msgId];
-        if (!gw) return message.channel.send('❌ Giveaway not found.');
-        if (!gw.active) return message.channel.send('⚠️ This giveaway has already ended.');
+  // ---- Giveaway Edit (interactive panel) ----
+if (subCmd === 'edit') {
+  const msgId = args[0];
+  if (!msgId) return message.channel.send('⚠️ Provide a giveaway message ID to edit.');
+  const gw = giveaways[msgId];
+  if (!gw) return message.channel.send('❌ Giveaway not found.');
+  if (!gw.active) return message.channel.send('⚠️ This giveaway has already ended.');
 
-        const embed = new EmbedBuilder()
-          .setTitle('🛠️ Giveaway Edit Panel')
-          .setDescription(
-            `**Prize:** ${gw.prize}\n**Winners:** ${gw.winnersCount}\n**Ends:** <t:${Math.floor(
-              gw.end / 1000
-            )}:R>\n\nSelect what you want to modify:`
-          )
-          .setColor(0xffc107)
-          .setFooter({ text: `Editing as ${message.author.tag}` });
+  const embed = new EmbedBuilder()
+    .setTitle('🛠️ Giveaway Edit Panel')
+    .setDescription(
+      `**Prize:** ${gw.prize}\n**Winners:** ${gw.winnersCount}\n**Ends:** <t:${Math.floor(
+        gw.end / 1000
+      )}:R>\n\nSelect what you want to modify:`
+    )
+    .setColor(0xffc107)
+    .setFooter({ text: `Editing as ${message.author.tag}` });
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('edit_prize').setLabel('Edit Prize').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('edit_duration').setLabel('Edit Duration').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('edit_winners').setLabel('Edit Winners').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('edit_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
-        );
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('edit_prize').setLabel('Edit Prize').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('edit_duration').setLabel('Edit Duration').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('edit_winners').setLabel('Edit Winners').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('edit_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
+  );
 
-        const msg = await message.channel.send({ embeds: [embed], components: [row] });
+  const msg = await message.channel.send({ embeds: [embed], components: [row] });
 
-        const collector = msg.createMessageComponentCollector({
-          componentType: ComponentType.Button,
-          time: 5 * 60 * 1000,
-        });
-
-        collector.on('collect', async (i) => {
-          if (i.user.id !== message.author.id)
-            return safeReply(i, { content: '❌ Only the giveaway host can edit this.', flags: 64 });
-
-          if (i.customId === 'edit_cancel') {
-            await safeReply(i, { content: '❌ Giveaway edit canceled.', embeds: [], components: [] });
-            collector.stop();
-            return;
-          }
-
-          // --- Modal for editing ---
-          const modal = new ModalBuilder().setCustomId(`gw_modal_${i.customId}`).setTitle('Edit Giveaway');
-
-          if (i.customId === 'edit_prize') {
-            modal.addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId('new_prize')
-                  .setLabel('New Prize')
-                  .setPlaceholder('e.g., Nitro Classic')
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-              )
-            );
-          } else if (i.customId === 'edit_duration') {
-            modal.addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId('new_duration')
-                  .setLabel('New Duration (e.g., 2h, 30m, 1d)')
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-              )
-            );
-          } else if (i.customId === 'edit_winners') {
-            modal.addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId('new_winners')
-                  .setLabel('New Number of Winners')
-                  .setPlaceholder('e.g., 3')
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-              )
-            );
-          }
-
-       // Safely open modal (ensure we haven't already replied/deferred)
-if (i.replied || i.deferred) return;
-try {
-  await i.showModal(modal);
-} catch (err) {
-  console.error('⚠️ Modal display failed:', err);
-  await safeReply(i, { content: '❌ Failed to open edit modal.', flags: 64 });
-  return;
-}
-
-// Wait for the modal submission
-let submitted;
-try {
-  submitted = await i.awaitModalSubmit({
-    filter: (m) => m.user.id === i.user.id,
-    time: 120000,
+  const collector = msg.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    time: 5 * 60 * 1000,
   });
-} catch {
-  submitted = null;
-}
 
-if (!submitted) {
-  if (!i.replied && !i.deferred) {
-    await safeReply(i, { content: '⏱️ Edit timed out.', flags: 64 });
-  }
-  return;
-}
-          
-          // Process submitted data
-          if (submitted.customId.includes('edit_prize')) {
-            gw.prize = submitted.fields.getTextInputValue('new_prize');
-            await submitted.reply({ content: `✅ Prize updated to **${gw.prize}**.`, flags: 64 });
-          } else if (submitted.customId.includes('edit_duration')) {
-            const durRaw = submitted.fields.getTextInputValue('new_duration');
-            const match = durRaw.match(/^(\d+)([dhms])$/i);
-            if (!match) return submitted.reply({ content: '⚠️ Invalid duration format.', flags: 64 });
-            const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-            const durationMs = parseInt(match[1]) * unitMs[match[2].toLowerCase()];
-            gw.end = Date.now() + durationMs;
-            await submitted.reply({ content: `⏱️ Duration updated to **${durRaw}**.`, flags: 64 });
-          } else if (submitted.customId.includes('edit_winners')) {
-            const num = parseInt(submitted.fields.getTextInputValue('new_winners'));
-            if (isNaN(num) || num < 1)
-              return submitted.reply({ content: '⚠️ Must be a number ≥ 1.', flags: 64 });
-            gw.winnersCount = num;
-            await submitted.reply({ content: `🏆 Winners updated to **${gw.winnersCount}**.`, flags: 64 });
-          }
+  collector.on('collect', async (i) => {
+    // only the original command author may edit
+    if (i.user.id !== message.author.id) {
+      return safeReply(i, { content: '❌ Only the giveaway host can edit this.', flags: 64 });
+    }
 
-          saveGiveaways();
-          scheduleGiveawayEnd(client, msgId);
+    if (i.customId === 'edit_cancel') {
+      await safeReply(i, { content: '❌ Giveaway edit canceled.', embeds: [], components: [] });
+      collector.stop();
+      return;
+    }
 
-          // Update the giveaway message if it still exists
-          try {
-            const gwChannel = await client.channels.fetch(gw.channelId);
-            const gwMsg = await gwChannel.messages.fetch(msgId);
+    // build modal according to which button they clicked
+    const modal = new ModalBuilder().setCustomId(`gw_modal_${i.customId}`).setTitle('Edit Giveaway');
+
+    if (i.customId === 'edit_prize') {
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('new_prize')
+            .setLabel('New Prize')
+            .setPlaceholder('e.g., Nitro Classic')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+    } else if (i.customId === 'edit_duration') {
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('new_duration')
+            .setLabel('New Duration (e.g., 2h, 30m, 1d)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+    } else if (i.customId === 'edit_winners') {
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('new_winners')
+            .setLabel('New Number of Winners')
+            .setPlaceholder('e.g., 3')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+    }
+
+    // If we've already replied/deferred, just show the modal (if possible) or send safe message
+    try {
+      if (i.replied || i.deferred) {
+        // showModal will still work in many circumstances; attempt it
+        await i.showModal(modal);
+      } else {
+        await i.showModal(modal);
+      }
+    } catch (err) {
+      console.error('⚠️ Modal display failed:', err);
+      // use safeReply helper so we don't crash trying to reply to an expired or acknowledged interaction
+      await safeReply(i, { content: '❌ Failed to open edit modal.', flags: 64 });
+      return;
+    }
+
+    // Await the modal submission
+    let submitted = null;
+    try {
+      submitted = await i.awaitModalSubmit({
+        filter: (m) => m.user.id === i.user.id,
+        time: 120000,
+      });
+    } catch (err) {
+      // timed out or other error — handled below as null
+      submitted = null;
+    }
+
+    if (!submitted) {
+      // timed out
+      await safeReply(i, { content: '⏱️ Edit timed out.', flags: 64 }).catch(() => {});
+      return;
+    }
+
+    // Process submitted data
+    try {
+      if (submitted.customId.includes('edit_prize')) {
+        gw.prize = submitted.fields.getTextInputValue('new_prize');
+        await submitted.reply({ content: `✅ Prize updated to **${gw.prize}**.`, flags: 64 });
+      } else if (submitted.customId.includes('edit_duration')) {
+        const durRaw = submitted.fields.getTextInputValue('new_duration');
+        const match = durRaw.match(/^(\d+)([dhms])$/i);
+        if (!match) return submitted.reply({ content: '⚠️ Invalid duration format.', flags: 64 });
+        const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+        const durationMs = parseInt(match[1]) * unitMs[match[2].toLowerCase()];
+        gw.end = Date.now() + durationMs;
+        await submitted.reply({ content: `⏱️ Duration updated to **${durRaw}**.`, flags: 64 });
+      } else if (submitted.customId.includes('edit_winners')) {
+        const num = parseInt(submitted.fields.getTextInputValue('new_winners'));
+        if (isNaN(num) || num < 1) return submitted.reply({ content: '⚠️ Must be a number ≥ 1.', flags: 64 });
+        gw.winnersCount = num;
+        await submitted.reply({ content: `🏆 Winners updated to **${gw.winnersCount}**.`, flags: 64 });
+      }
+
+      // persist changes and reschedule
+      saveGiveaways();
+      scheduleGiveawayEnd(client, msgId);
+
+      // Update the giveaway message if present
+      try {
+        const gwChannel = await client.channels.fetch(gw.channelId).catch(() => null);
+        if (gwChannel) {
+          const gwMsg = await gwChannel.messages.fetch(msgId).catch(() => null);
+          if (gwMsg) {
             const updatedEmbed = new EmbedBuilder()
               .setTitle(`🎉 ${gw.prize}`)
               .setDescription(
@@ -1128,28 +1138,36 @@ if (!submitted) {
               )
               .setColor(0xffc107)
               .setTimestamp(new Date(gw.end));
-            await gwMsg.edit({ embeds: [updatedEmbed] });
-          } catch (err) {
-            console.error('Failed to update giveaway message:', err);
+            await gwMsg.edit({ embeds: [updatedEmbed] }).catch(() => {});
           }
-
-           await logActionStructured({
-            command: '.giveaway edit',
-            message,
-            details: `Edited giveaway ${msgId} (Prize: ${gw.prize}, Winners: ${gw.winnersCount})`,
-          });
-        } catch (err) {
-          console.error('❌ Error in giveaway edit modal:', err);
         }
-      });
+      } catch (err) {
+        console.error('Failed to update giveaway message:', err);
+      }
 
-      collector.on('end', async () => {
-        if (!msg.editable) return;
-        await msg.edit({ components: [] }).catch(() => {});
+      await logActionStructured({
+        command: '.giveaway edit',
+        message,
+        details: `Edited giveaway ${msgId} (Prize: ${gw.prize}, Winners: ${gw.winnersCount})`,
       });
-
-      return;
+    } catch (err) {
+      console.error('❌ Error processing modal submission:', err);
+      // we try to inform the submitter if possible
+      try {
+        if (submitted && !submitted.replied) await submitted.reply({ content: '❌ There was an error processing your changes.', flags: 64 });
+      } catch (e) {}
     }
+  });
+
+  // tidy up the edit panel when collector ends
+  collector.on('end', async () => {
+    try {
+      if (msg.editable) await msg.edit({ components: [] }).catch(() => {});
+    } catch (e) {}
+  });
+
+  return;
+}
 
     // ---------- .stats command (persistent toggle) ----------
     if (content === '.stats') {
@@ -2185,6 +2203,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
