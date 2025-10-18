@@ -421,10 +421,32 @@ async function saveWarnings() { await fsp.writeFile(WARNINGS_FILE, JSON.stringif
 // -------------------- Bypass persistence --------------------
 async function saveBypass() { await fsp.writeFile(BYPASS_FILE, JSON.stringify(bypassList, null, 2), 'utf8'); }
 
-// -------------------- Giveaways persistence --------------------
-function saveGiveaways() { safeWriteJSON(GIVEAWAYS_FILE, giveaways); }
-function saveGiveawayBans() { safeWriteJSON(GIVEAWAY_BANS_FILE, giveawayBans); }
-function saveGiveawayRigged() { safeWriteJSON(GIVEAWAY_RIGGED_FILE, giveawayRigged); }
+// -------------------- Giveaways persistence (async-safe) --------------------
+// Use async/await file writes so callers can reliably .catch() if needed
+async function saveGiveaways() {
+  try {
+    await fsp.writeFile(GIVEAWAYS_FILE, JSON.stringify(giveaways, null, 2), 'utf8');
+  } catch (err) {
+    console.error('❌ Failed to save giveaways file:', err);
+    throw err;
+  }
+}
+async function saveGiveawayBans() {
+  try {
+    await fsp.writeFile(GIVEAWAY_BANS_FILE, JSON.stringify(giveawayBans, null, 2), 'utf8');
+  } catch (err) {
+    console.error('❌ Failed to save giveaway bans file:', err);
+    throw err;
+  }
+}
+async function saveGiveawayRigged() {
+  try {
+    await fsp.writeFile(GIVEAWAY_RIGGED_FILE, JSON.stringify(giveawayRigged, null, 2), 'utf8');
+  } catch (err) {
+    console.error('❌ Failed to save giveaway rigged file:', err);
+    throw err;
+  }
+}
 
 // In-memory timers for running giveaways so we can re-schedule/clear them
 const giveawayTimers = new Map();
@@ -932,9 +954,43 @@ if (subCmd === 'create') {
 if (subCmd === 'delete') {
   const msgId = args[0];
   if (!msgId) return message.channel.send('⚠️ Provide message ID to delete.');
-  delete giveaways[msgId];
-  saveGiveaways();
-  return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
+
+  // If giveaway exists, attempt graceful cleanup:
+  const gw = giveaways[msgId];
+  if (gw) {
+    // Clear scheduled timer if present
+    try {
+      if (giveawayTimers.has(msgId)) {
+        clearInterval(giveawayTimers.get(msgId));
+        giveawayTimers.delete(msgId);
+      }
+    } catch (e) { console.warn('Failed to clear giveaway timer for', msgId, e); }
+
+    // Try to edit the original giveaway message to remove components and mark ended
+    try {
+      const ch = await client.channels.fetch(gw.channelId).catch(() => null);
+      if (ch) {
+        const gm = await ch.messages.fetch(msgId).catch(() => null);
+        if (gm) {
+          const endedEmbed = new EmbedBuilder()
+            .setTitle(`🎉 ${gw.prize}`)
+            .setDescription(`This giveaway has been cancelled by staff.`)
+            .setColor(0xff0000)
+            .setTimestamp(new Date());
+          await gm.edit({ embeds: [endedEmbed], components: [] }).catch(() => {});
+        }
+      }
+    } catch (e) { console.warn('Could not edit original giveaway message:', e); }
+  }
+
+  // Remove from memory and persist
+delete giveaways[msgId];
+try {
+  await saveGiveaways();
+} catch (e) {
+  console.warn('⚠️ Failed to save giveaways file:', e);
+}
+return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
 }
 
 // ---- Giveaway Edit (interactive panel) ----
@@ -1990,9 +2046,8 @@ client.on('interactionCreate', async (interaction) => {
         giveawayLocks.add(msgId);
         try {
           if (!gw.participants.includes(interaction.user.id)) {
-            gw.participants.push(interaction.user.id);
-            await saveGiveaways().catch(() => {});
-          }
+          gw.participants.push(interaction.user.id);
+          try { await saveGiveaways(); } catch(e) { /* best-effort */ }
           await updateGiveawayEmbed(msgId).catch(() => {});
           const leaveRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`gw_leave_${msgId}`).setLabel('Leave Giveaway').setStyle(ButtonStyle.Danger)
@@ -2016,7 +2071,11 @@ client.on('interactionCreate', async (interaction) => {
           const idx = gwLeave.participants.indexOf(interaction.user.id);
           if (idx === -1) return interaction.reply({ content: '⚠️ You are not entered in this giveaway.', flags: 64 });
           gwLeave.participants.splice(idx, 1);
-          await saveGiveaways().catch(() => {});
+          try {
+            await saveGiveaways();
+          } catch (e) {
+            console.warn('⚠️ Failed to save giveaways file:', e);
+          }
           await updateGiveawayEmbed(leaveMsgId).catch(() => {});
           return interaction.reply({ content: `🗑️ You have left the giveaway **${gwLeave.prize}**.`, flags: 64 });
         } finally {
@@ -2136,3 +2195,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
