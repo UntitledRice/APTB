@@ -349,13 +349,16 @@ async function updateStats(guild) {
     const memberChannel = guild.channels.cache.get(data.memberChannel);
     const botChannel = guild.channels.cache.get(data.botChannel);
 
+    // if one of the channels is missing, try to recreate both
     if (!memberChannel || !botChannel) {
       await createStatsChannels(guild);
       return;
     }
 
-await memberChannel.edit({ name: `👥 Members: ${memberCount}` }).catch(()=>{});
-await botChannel.edit({ name: `🤖 Bots: ${botCount}` }).catch(()=>{});
+    // setName on channels — use .setName or .edit depending on your codebase but
+    // using setName is fine here and we swallow errors (best-effort)
+    await memberChannel.setName(`👥 Members: ${memberCount}`).catch(()=>{});
+    await botChannel.setName(`🤖 Bots: ${botCount}`).catch(()=>{});
   } catch (err) {
     console.error('Stats update failed:', err);
   }
@@ -364,6 +367,7 @@ await botChannel.edit({ name: `🤖 Bots: ${botCount}` }).catch(()=>{});
 async function createStatsChannels(guild) {
   try {
     const everyoneRole = guild.roles.everyone;
+    // delete old ones if exist (safe)
     const oldMember = guild.channels.cache.get(statsData[guild.id]?.memberChannel);
     const oldBot = guild.channels.cache.get(statsData[guild.id]?.botChannel);
     if (oldMember) await oldMember.delete().catch(()=>{});
@@ -376,13 +380,17 @@ async function createStatsChannels(guild) {
     const memberChan = await guild.channels.create({
       name: `👥 Members: ${memberCount}`,
       type: ChannelType.GuildVoice,
-      permissionOverwrites: [{ id: everyoneRole.id, deny: ['Connect'] }]
+      permissionOverwrites: [
+        { id: everyoneRole.id, deny: ['Connect'] }
+      ]
     });
 
     const botChan = await guild.channels.create({
       name: `🤖 Bots: ${botCount}`,
       type: ChannelType.GuildVoice,
-      permissionOverwrites: [{ id: everyoneRole.id, deny: ['Connect'] }]
+      permissionOverwrites: [
+        { id: everyoneRole.id, deny: ['Connect'] }
+      ]
     });
 
     statsData[guild.id] = {
@@ -391,38 +399,51 @@ async function createStatsChannels(guild) {
       botChannel: botChan.id
     };
 
+    // persist the mapping (best-effort)
     try { safeWriteJSON(STATS_FILE, statsData); } catch (e) { console.warn('Failed to persist statsData after create:', e); }
     console.log(`✅ Created stats channels for ${guild.name}`);
+  } catch (err) {
+    console.error('Failed to create stats channels:', err);
+  }
+}
 
 function startStatsLoop() {
-  try {
-    if (statsInterval) return;
+  // ensure we only have one interval running
+  if (statsInterval) {
+    try { clearInterval(statsInterval); } catch (e) {}
+    statsInterval = null;
+  }
 
-    (async () => {
+  // run an initial update pass (fire-and-forget)
+  (async () => {
+    for (const [guildId, data] of Object.entries(statsData || {})) {
+      if (data && data.enabled) {
+        const guild = client.guilds.cache.get(guildId);
+        if (guild) await updateStats(guild).catch(() => {});
+      }
+    }
+  })().catch(() => {});
+
+  // schedule the repeating task (every 60s)
+  statsInterval = setInterval(async () => {
+    try {
       for (const [guildId, data] of Object.entries(statsData || {})) {
         if (data && data.enabled) {
           const guild = client.guilds.cache.get(guildId);
           if (guild) await updateStats(guild).catch(() => {});
         }
       }
-    })().catch(() => {});
 
-    statsInterval = setInterval(async () => {
-      for (const [guildId, data] of Object.entries(statsData || {})) {
-        if (data && data.enabled) {
-          const guild = client.guilds.cache.get(guildId);
-          if (guild) await updateStats(guild).catch(() => {});
-        }
-      }
+      // if nothing enabled any more, stop the interval
       const anyEnabled = Object.values(statsData || {}).some(x => x && x.enabled);
       if (!anyEnabled) {
         try { clearInterval(statsInterval); } catch (e) {}
         statsInterval = null;
       }
-    }, 60 * 1000);
-  } catch (e) {
-    console.warn('startStatsLoop failed:', e);
-  }
+    } catch (e) {
+      console.warn('Stats loop iteration failed:', e);
+    }
+  }, 60 * 1000);
 }
 
 // -------------------- Locked channels — persisted & reapply on ready --------------------
@@ -2267,6 +2288,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
