@@ -971,6 +971,7 @@ if (subCmd === 'create') {
   });
 
   return;
+}
 
       // ---- Giveaway Delete ----
       if (subCmd === 'delete') {
@@ -2180,6 +2181,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
