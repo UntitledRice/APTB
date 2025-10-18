@@ -2029,7 +2029,7 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // ---- JOIN ----
+         // ---- JOIN ----
       if (customId === 'gw_join') {
         const msgId = interaction.message?.id;
         const gw = giveaways[msgId];
@@ -2048,8 +2048,9 @@ client.on('interactionCreate', async (interaction) => {
         giveawayLocks.add(msgId);
         try {
           if (!gw.participants.includes(interaction.user.id)) {
-          gw.participants.push(interaction.user.id);
-          try { saveGiveaways(); } catch(e) { /* best-effort */ }
+            gw.participants.push(interaction.user.id);
+            try { saveGiveaways(); } catch (e) { /* best-effort */ }
+          }
           await updateGiveawayEmbed(msgId).catch(() => {});
           const leaveRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`gw_leave_${msgId}`).setLabel('Leave Giveaway').setStyle(ButtonStyle.Danger)
@@ -2197,3 +2198,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
