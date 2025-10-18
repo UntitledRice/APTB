@@ -1272,9 +1272,9 @@ if (subCmd === 'edit') {
       }
 
       await logActionStructured({
-        command: '.resetwarn',
+        command: '.bypass',
         message,
-        details: `Reset warnings for ${target.user.tag}`,
+        details: `AutoMod bypass toggled for ${target.tag} by ${message.author.tag}`,
         channelId: MOD_LOG_CHANNEL_ID
       });
     }
@@ -1667,12 +1667,12 @@ if (subCmd === 'edit') {
       } catch {}
 
       // Log the warning action
-      await logActionStructured({
-        command: '.warn',
-        message,
-        details: `Warned ${target.user.tag}. Reason: ${reason}`,
-        channelId: MOD_LOG_CHANNEL_ID
-      });
+await logActionStructured({
+  command: '.warn',
+  message,
+  details: `Warned ${user.user.tag}. Reason: ${reason}`,
+  channelId: MOD_LOG_CHANNEL_ID
+});
 
       // Send a message in the channel notifying the staff about the warning
       await message.channel.send(`✅ Warned ${user.user.tag}. Total warnings: ${warnings[user.id].length}`);
@@ -1691,10 +1691,10 @@ if (subCmd === 'edit') {
       await saveWarnings();
       try { await user.send({ embeds: [ new EmbedBuilder().setTitle('✅ Your warnings have been reset').setColor(0x00ff00).setDescription(`All warnings removed by ${message.author.tag}`).setTimestamp() ] }); } catch {}
       await logActionStructured({
-        command: '.resetwarn',
-        message,
-        details: `Reset warnings for ${target.user.tag}`,
-        channelId: MOD_LOG_CHANNEL_ID
+          command: '.resetwarn',
+          message,
+          details: `Reset warnings for ${user.user.tag}`,
+          channelId: MOD_LOG_CHANNEL_ID
       });
       await message.channel.send(`✅ Reset warnings for ${user.user.tag}`);
       return;
@@ -2084,19 +2084,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
