@@ -1070,7 +1070,8 @@ try {
   await i.showModal(modal);
 } catch (err) {
   console.error('⚠️ Modal display failed:', err);
-  return safeReply(i, { content: '❌ Failed to open edit modal.', flags: 64 });
+  await safeReply(i, { content: '❌ Failed to open edit modal.', flags: 64 });
+  return;
 }
 
 // Wait for the modal submission
@@ -2184,6 +2185,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
