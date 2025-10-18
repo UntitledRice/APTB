@@ -968,10 +968,13 @@ if (subCmd === 'create') {
         await message.channel.send(`✅ Giveaway started for **${prize}**!`);
       }
     }
-  });
-
+  } catch (err) {
+    console.error('⚠️ Giveaway collector error:', err);
+  }
+  }); // ✅ closes collector
   return;
-}
+} // ✅ closes subCmd create
+
 
       // ---- Giveaway Delete ----
       if (subCmd === 'delete') {
@@ -2181,6 +2184,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
