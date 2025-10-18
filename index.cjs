@@ -747,7 +747,7 @@ if (!isCommand) {
         { name: '.whois', desc: 'Show detailed info about a user (roles, join date, etc).', args: '<userId or mention>', roles: ['Staff'], category: '🔵 Information' },
 
         // 🟣 Staff Utilities
-        { name: '.gw', desc: 'Create, edit, or delete giveaways.', args: 'create/edit/delete [params]', roles: ['Staff'], category: '🟣 Staff Utilities' },
+        { name: '.giveaway', desc: 'Create, edit, or delete giveaways.', args: 'create/edit/delete [params]', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.welcome', desc: 'Send a welcome message to a new staff member.', args: '@User', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.vouch', desc: 'Ask others to vouch for you in the staff channel.', args: 'none', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.rvouch', desc: 'Restricted version of vouch for APT only.', args: 'none', roles: ['Specific User'], category: '🟣 Staff Utilities' },
@@ -1573,8 +1573,6 @@ if (subCmd === 'edit') {
         { command: '.resetwarn', safe: true },
         { command: '.lock', safe: true },
         { command: '.unlock', safe: true },
-        { command: '.ban', safe: true },
-        { command: '.kick', safe: true },
         { command: '.purge', safe: true },
 
         // Ping Commands
@@ -2198,4 +2196,5 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
