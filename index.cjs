@@ -551,6 +551,18 @@ client.on('messageCreate', async message => {
     const content = contentRaw.toLowerCase();
     const isCommand = contentRaw.startsWith('.');
     const isStaff = !!(message.member && message.member.roles.cache.has(STAFF_ROLE_ID));
+    // --- Parse command tokens so subCmd / args are always defined ---
+let cmd, subCmd, args;
+if (isCommand) {
+  const tokens = contentRaw.slice(1).trim().split(/\s+/);
+  cmd = tokens[0]?.toLowerCase() || '';
+  subCmd = tokens[1]?.toLowerCase() || '';
+  args = tokens.slice(2);
+} else {
+  cmd = '';
+  subCmd = '';
+  args = [];
+}
 
     async function recordUsage(cmd, details='') { await logActionStructured({ command: cmd, message, details }); }
 
@@ -2072,6 +2084,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
