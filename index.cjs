@@ -904,6 +904,7 @@ if (subCmd === 'create') {
   });
 
   collector.on('collect', async (i) => {
+    try {
     // Only host can use
     if (i.user.id !== message.author.id)
       return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
@@ -969,7 +970,7 @@ if (subCmd === 'create') {
     }
   });
 
-  return; // ✅ properly ends subCmd block
+  return;
 
       // ---- Giveaway Delete ----
       if (subCmd === 'delete') {
@@ -2179,6 +2180,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
