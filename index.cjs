@@ -886,14 +886,8 @@ if (subCmd === 'create') {
     .setColor(0x2b6cb0);
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('gw_start')
-      .setLabel('Start')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('gwsetup_cancel')
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId('gw_start').setLabel('Start').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('gwsetup_cancel').setLabel('Cancel').setStyle(ButtonStyle.Danger)
   );
 
   const setupMsg = await message.channel.send({ embeds: [controlEmbed], components: [row] });
@@ -904,16 +898,13 @@ if (subCmd === 'create') {
   });
 
   collector.on('collect', async (i) => {
-    try {
     // Only host can use
     if (i.user.id !== message.author.id)
       return safeReply(i, { content: 'Only the giveaway host can use these buttons.', flags: 64 });
 
     // ---- CANCEL BUTTON ----
     if (i.customId === 'gwsetup_cancel') {
-      if (!i.replied && !i.deferred) {
-        await i.deferUpdate().catch(() => {});
-      }
+      await i.deferUpdate().catch(() => {});
       await safeReply(i, { content: '❌ Giveaway setup canceled.', embeds: [], components: [] }).catch(() => {});
       collector.stop();
       return;
@@ -968,24 +959,29 @@ if (subCmd === 'create') {
         await message.channel.send(`✅ Giveaway started for **${prize}**!`);
       }
     }
-  } catch (err) {
-    console.error('⚠️ Giveaway collector error:', err);
-  }
-  }); // ✅ closes collector
-  return;
-} // ✅ closes subCmd create
+  });
+
+  // ensure collector end tidies up the setup message components
+  collector.on('end', async () => {
+    try {
+      if (setupMsg.editable) await setupMsg.edit({ components: [] }).catch(() => {});
+    } catch (e) {}
+  });
+
+  return; // ends subCmd === 'create'
+} // end subCmd create
 
 
-      // ---- Giveaway Delete ----
-      if (subCmd === 'delete') {
-        const msgId = args[0];
-        if (!msgId) return message.channel.send('⚠️ Provide message ID to delete.');
-        delete giveaways[msgId];
-        saveGiveaways();
-        return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
-      }
+// ---- Giveaway Delete ----
+if (subCmd === 'delete') {
+  const msgId = args[0];
+  if (!msgId) return message.channel.send('⚠️ Provide message ID to delete.');
+  delete giveaways[msgId];
+  saveGiveaways();
+  return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
+}
 
-  // ---- Giveaway Edit (interactive panel) ----
+// ---- Giveaway Edit (interactive panel) ----
 if (subCmd === 'edit') {
   const msgId = args[0];
   if (!msgId) return message.channel.send('⚠️ Provide a giveaway message ID to edit.');
@@ -2203,6 +2199,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
