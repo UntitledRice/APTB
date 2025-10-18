@@ -967,7 +967,7 @@ if (subCmd === 'create') {
         await message.channel.send(`✅ Giveaway started for **${prize}**!`);
       }
     }
-  }); // ✅ <- correct closing
+  });
 
   return; // ✅ properly ends subCmd block
 
@@ -1135,7 +1135,7 @@ if (!submitted) {
         } catch (err) {
           console.error('❌ Error in giveaway edit modal:', err);
         }
-      }); // closes collector.on('collect')
+      });
 
       collector.on('end', async () => {
         if (!msg.editable) return;
@@ -1143,7 +1143,7 @@ if (!submitted) {
       });
 
       return;
-      }
+    }
 
     // ---------- .stats command (persistent toggle) ----------
     if (content === '.stats') {
@@ -2179,6 +2179,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
