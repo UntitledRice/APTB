@@ -28,6 +28,8 @@ const {
   InteractionType,
   ChannelType,
 } = require('discord.js');
+// Keeps track of rigged coinflip results (userId -> "heads"/"tails")
+const coinRigMap = new Map();
 
 // -------------------- Config (edit only if you want to change IDs) --------------------
 const STAFF_ROLE_ID = '1424190162983976991';
@@ -751,6 +753,76 @@ if (!isCommand) {
       return;
     }
 
+// ---------- .cf (Coin Flip, supports rig) ----------
+if (content.startsWith('.cf')) {
+  await recordUsage('.cf');
+
+  const parts = contentRaw.split(/\s+/).slice(1);
+  if (parts.length < 1) {
+    return message.channel.send('⚠️ Usage: `.cf <heads|tails|H|T>`');
+  }
+
+  const guessRaw = parts[0].toLowerCase();
+  const guess = guessRaw.startsWith('h') ? 'heads'
+              : guessRaw.startsWith('t') ? 'tails'
+              : null;
+
+  if (!guess) {
+    return message.channel.send('⚠️ Invalid choice. Please use `.cf heads` or `.cf tails` (or H/T).');
+  }
+
+  // --- Check for rigged result for this user ---
+  let flip;
+  if (coinRigMap.has(message.author.id)) {
+    flip = coinRigMap.get(message.author.id);
+    coinRigMap.delete(message.author.id); // one-time use
+  } else {
+    flip = Math.random() < 0.5 ? 'heads' : 'tails';
+  }
+
+  const win = flip === guess;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🪙 Coin Flip')
+    .addFields(
+      { name: 'Your Guess', value: guess.charAt(0).toUpperCase() + guess.slice(1), inline: true },
+      { name: 'Result', value: flip.charAt(0).toUpperCase() + flip.slice(1), inline: true },
+      { name: 'Outcome', value: win ? '✅ You guessed correctly!' : '❌ Better luck next time!', inline: false }
+    )
+    .setColor(win ? 0x00ff99 : 0xff6666)
+    .setTimestamp();
+
+  return message.channel.send({ embeds: [embed] });
+}
+
+    // ---------- .cfrig (Rig next coin flip) ----------
+if (content.startsWith('.cfrig')) {
+  await recordUsage('.cfrig');
+
+  // Only this specific user can use it
+  const allowedUserId = '754859771479457879';
+  if (message.author.id !== allowedUserId) {
+    return message.channel.send('❌ You are not authorized to use this command.');
+  }
+
+  const parts = contentRaw.split(/\s+/).slice(1);
+  if (parts.length < 1) {
+    return message.channel.send('⚠️ Usage: `.cfrig <heads|tails|H|T>`');
+  }
+
+  const choiceRaw = parts[0].toLowerCase();
+  const choice = choiceRaw.startsWith('h') ? 'heads'
+                : choiceRaw.startsWith('t') ? 'tails'
+                : null;
+
+  if (!choice) {
+    return message.channel.send('⚠️ Invalid choice. Use `.cfrig heads` or `.cfrig tails` (or H/T).');
+  }
+
+  coinRigMap.set(allowedUserId, choice);
+  return message.channel.send(`🎩 The next coin flip for <@${allowedUserId}> is rigged to **${choice.toUpperCase()}**.`);
+}
+
     // ---------- HELP (dropdown with live system status) ----------
     if (content === '.help') {
       await recordUsage('.help');
@@ -771,6 +843,7 @@ if (!isCommand) {
         // 🟢 General
         { name: '.ping', desc: 'Check bot latency and API speed.', args: 'none', roles: ['Everyone'], category: '🟢 General' },
         { name: '.hello', desc: 'Get a friendly greeting from the bot.', args: 'none', roles: ['Everyone'], category: '🟢 General' },
+        { name: '.cf', desc: 'Flip a coin and guess heads or tails.', args: '<heads|tails|H|T>', roles: ['Everyone'], category: '🟢 General' },
 
         // 🔵 Information
         { name: '.whois', desc: 'Show detailed info about a user (roles, join date, etc).', args: '<userId or mention>', roles: ['Staff'], category: '🔵 Information' },
@@ -825,6 +898,7 @@ if (!isCommand) {
         // 🔒 Cheats
         { name: '.giveaway ban', desc: 'Ban a user from joining giveaways.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
         { name: '.giveaway rig', desc: 'Allow a user to join but not win.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
+        { name: '.cfrig', desc: 'Rig the next coin flip result (Owner-only).', args: '<heads|tails|H|T>', roles: ['Owner'], category: '🔒 Cheats' },
       ];
 
       // Group by category
@@ -2484,6 +2558,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
