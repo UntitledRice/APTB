@@ -2213,3 +2213,26 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+    
+// --- Finish any pending resume-timers block and close message handler ---
+
+    }); // end Object.keys(inactiveTimers).forEach
+
+  } catch (err) {
+    console.error('❌ Error in message handler:', err);
+  }
+}); // end client.on('messageCreate')
+
+// Global error handlers (safe guards)
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled promise rejection:', err);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+
+// Export client for testing or external use ( harmless if not imported )
+try {
+  module.exports = client;
+} catch (_) {}
