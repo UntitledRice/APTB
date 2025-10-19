@@ -776,6 +776,7 @@ if (!isCommand) {
         { name: '.whois', desc: 'Show detailed info about a user (roles, join date, etc).', args: '<userId or mention>', roles: ['Staff'], category: '🔵 Information' },
 
         // 🟣 Staff Utilities
+        { name: '.punishlog', desc: 'View most recent punishments on a member.', args: '<userId or mention>', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.modlog', desc: 'View most recent commands by a staff member.', args: '<userId or mention>', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.giveaway', desc: 'Create, edit, or delete giveaways.', args: 'create/edit/delete [params]', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.welcome', desc: 'Send a welcome message to a new staff member.', args: '@User', roles: ['Staff'], category: '🟣 Staff Utilities' },
@@ -1963,10 +1964,12 @@ if (content.startsWith('.modlog')) {
 
   return message.channel.send({ embeds: [embed] });
 }
+    
   } catch (err) {
     console.error('❌ Message handler error:', err);
   }
 });
+
 
 // ---------- Unified interaction handler (modal + buttons) ----------
 client.on('interactionCreate', async (interaction) => {
@@ -2217,3 +2220,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
