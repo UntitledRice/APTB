@@ -1912,184 +1912,57 @@ await logActionStructured({
 
 // ---------- .modlog command ----------
 if (content.startsWith('.modlog')) {
-  await recordUsage('.modlog');
-  if (!isStaff) return message.channel.send('❌ Only Staff can use this command.');
+  const args = content.split(/\s+/);
+  const targetMention = args[1];
+  if (!targetMention) return message.channel.send('⚠️ Usage: `.modlog <@user or userID>`');
 
-  const arg = content.split(/\s+/)[1];
-  if (!arg) return message.channel.send('⚠️ Usage: `.modlog <@user>` or `.modlog <userID>`');
+  const targetId = targetMention.replace(/[<@!>]/g, '');
+  const logDir = path.join(process.cwd(), 'logs');
+  const files = fs.readdirSync(logDir).filter(f => f.endsWith('.log')).sort().reverse(); // newest first
 
-  // Extract numeric ID from mention or raw ID
-  const userId = arg.replace(/[<@!>]/g, '');
+  let entries = [];
+  for (const file of files) {
+    const filePath = path.join(logDir, file);
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.split('\n').filter(l => l.includes(`"userId":"${targetId}"`) || l.includes(targetId));
 
-  let target = null;
-  try {
-    target = await client.users.fetch(userId);
-  } catch {
-    return message.channel.send('❌ User not found. Make sure the ID is correct or they share a server.');
+    for (const line of lines) {
+      if (line.includes('"command":')) {
+        try {
+          const data = JSON.parse(line);
+          entries.push({
+            command: data.command,
+            time: new Date(data.time).toLocaleString('en-US', { timeZone: 'UTC', hour12: false }),
+          });
+        } catch (err) {
+          // fallback for non-JSON lines
+          const match = line.match(/Received message: (\.\S+)/);
+          if (match) {
+            entries.push({ command: match[1], time: 'Unknown' });
+          }
+        }
+      }
+    }
+
+    if (entries.length >= 50) break; // limit for performance
   }
 
-  const logFile = path.join(LOGS_DIR, 'commands.log');
-  if (!fs.existsSync(logFile)) return message.channel.send('⚠️ No command logs found.');
+  if (entries.length === 0) return message.channel.send('⚠️ No command logs found for that user.');
 
-  const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
-  const userLogs = logs.filter(line => line.includes(userId));
-
-  if (!userLogs.length)
-    return message.channel.send(`📭 No recorded commands for **${target.tag}**.`);
-
-  const formatted = userLogs
-    .slice(-10) // last 10 entries
-    .map(line => {
-      try {
-        const entry = JSON.parse(line);
-        const date = new Date(entry.time);
-        const timestamp = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-        return `• **${entry.command}** in <#${entry.channelId}> — *${timestamp}*`;
-      } catch {
-        return line;
-      }
-    })
+  const formatted = entries
+    .slice(-25) // latest 25 entries
+    .map(e => `• **${e.command}** — ${e.time}`)
     .join('\n');
 
   const embed = new EmbedBuilder()
-    .setTitle(`📝 Command History for ${target.tag}`)
+    .setTitle(`🧾 Command History for <@${targetId}>`)
     .setDescription(formatted)
     .setColor(0x2b6cb0)
-    .setFooter({ text: `User ID: ${target.id}` })
+    .setFooter({ text: `Found ${entries.length} total commands` })
     .setTimestamp();
 
   return message.channel.send({ embeds: [embed] });
 }
-
-      // ---------- Mute / Unmute ----------
-      if (content.startsWith('.mute') || content.startsWith('.unmute')) {
-        await recordUsage(content.startsWith('.mute') ? '.mute' : '.unmute');
-        if (!isStaff) return message.channel.send('❌ Only Staff can use this command.');
-        const args = contentRaw.split(/\s+/).slice(1);
-        const muteRole = message.guild.roles.cache.get(MUTED_ROLE_ID);
-        if (!muteRole) return message.channel.send('⚠️ Muted role not found.');
-
-        if (content.startsWith('.mute')) {
-          const targetMention = args[0];
-          const durationStr = args[args.length - 1];
-          const reason = args.slice(1, args.length - 1).join(' ') || 'No reason provided.';
-          if (!targetMention) return message.channel.send('⚠️ Provide a user mention.');
-          const target = await message.guild.members.fetch(targetMention.replace(/[<@!>]/g, '')).catch(() => null);
-          if (!target) return message.channel.send('⚠️ User not found.');
-          if (target.roles.cache.has(MUTED_ROLE_ID)) return message.channel.send('⚠️ User is already muted.');
-          const match = durationStr ? durationStr.match(/^(\d+)(s|m|h|d)$/) : null;
-          if (!match) return message.channel.send('⚠️ Invalid duration. Example: 10m, 2h, 1d.');
-          const num = parseInt(match[1]);
-          const unit = match[2];
-          let durationMs;
-          switch (unit) {
-            case 's': durationMs = num * 1000; break;
-            case 'm': durationMs = num * 60 * 1000; break;
-            case 'h': durationMs = num * 60 * 60 * 1000; break;
-            case 'd': durationMs = num * 24 * 60 * 60 * 1000; break;
-            default: durationMs = num * 60 * 1000;
-          }
-
-          try {
-            await target.roles.add(muteRole);
-          } catch (err) {
-            console.error('Failed to add mute role:', err);
-            return message.channel.send('❌ Failed to assign mute role.');
-          }
-
-          await message.channel.send(`✅ ${user.user.tag} muted for ${durationStr}. Reason: ${reason}`);
-
-          await logActionStructured({
-            command: '.mute',
-            message,
-            details: `${user.user.tag} muted. Reason: ${reason}. Duration: ${durationStr}`,
-            channelId: MOD_LOG_CHANNEL_ID
-          });
-
-          try {
-            await target.send({
-              embeds: [
-                new EmbedBuilder()
-                  .setTitle('🔇 You have been muted')
-                  .setColor(0xff0000)
-                  .setDescription(`
-                    **By:** ${message.author.tag}
-                    **Reason:** ${reason}
-                    **Duration:** ${durationStr}
-                  `)
-                  .setTimestamp()
-              ]
-            });
-          } catch {}
-
-          setTimeout(async () => {
-            try {
-              const fresh = await message.guild.members.fetch(target.id);
-              if (fresh.roles.cache.has(MUTED_ROLE_ID)) {
-                await fresh.roles.remove(muteRole);
-                await message.channel.send(`✅ Auto-unmute: ${fresh.user.tag}`);
-                await logActionStructured({
-                  command: '.unmute-auto',
-                  message,
-                  details: `${fresh.user.tag} auto-unmuted after ${durationStr}`
-                });
-              }
-            } catch (err) {
-              console.error('Auto-unmute failed', err);
-            }
-          }, durationMs);
-
-          await handleWarningsAndMute(target, message);
-          return;
-        } else {
-          // .unmute command
-          const targetMention = args[0];
-          const reason = args.slice(1).join(' ') || 'No reason provided.';
-          if (!targetMention) return message.channel.send('⚠️ Provide a user mention.');
-          const target = await message.guild.members.fetch(targetMention.replace(/[<@!>]/g, '')).catch(() => null);
-          if (!target) return message.channel.send('⚠️ User not found.');
-          if (!target.roles.cache.has(MUTED_ROLE_ID)) return message.channel.send('⚠️ User is not muted.');
-
-          try {
-            await target.roles.remove(muteRole);
-          } catch (err) {
-            console.error('Failed to remove mute role:', err);
-            return message.channel.send('❌ Failed to unmute user (role removal failed).');
-          }
-
-          await message.channel.send(`✅ ${user.user.tag} has been unmuted. Reason: ${reason}`);
-
-          await logActionStructured({
-            command: '.unmute',
-            message,
-            details: `${user.user.tag} unmuted by ${message.author.tag}. Reason: ${reason}`,
-            channelId: MOD_LOG_CHANNEL_ID
-          });
-
-          try {
-            await target.send({
-              embeds: [
-                new EmbedBuilder()
-                  .setTitle('🔊 You have been unmuted')
-                  .setColor(0x00ff00)
-                  .setDescription(`
-                    **By:** ${message.author.tag}
-                    **Reason:** ${reason}
-                  `)
-                  .setTimestamp()
-              ]
-            });
-          } catch {}
-
-          return;
-        }
-      }
-
-      // ✅ Close the message handler properly
-      } catch (err) {
-        console.error('❌ Message handler error:', err);
-      }
-      }); // closes client.on('messageCreate')
 
 // ---------- Unified interaction handler (modal + buttons) ----------
 client.on('interactionCreate', async (interaction) => {
