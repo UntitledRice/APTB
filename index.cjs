@@ -795,9 +795,9 @@ if (content.startsWith('.cf')) {
   return message.channel.send({ embeds: [embed] });
 }
 
-    // ---------- .cfrig (Rig next coin flip) ----------
-if (content.startsWith('.cfrig')) {
-  await recordUsage('.cfrig');
+    // ---------- .coinrig (Rig next coin flip) ----------
+if (content.startsWith('.coinrig')) {
+  await recordUsage('.coinrig');
 
   // Only this specific user can use it
   const allowedUserId = '754859771479457879';
@@ -807,7 +807,7 @@ if (content.startsWith('.cfrig')) {
 
   const parts = contentRaw.split(/\s+/).slice(1);
   if (parts.length < 1) {
-    return message.channel.send('⚠️ Usage: `.cfrig <heads|tails|H|T>`');
+    return message.channel.send('⚠️ Usage: `.coinrig <heads|tails|H|T>`');
   }
 
   const choiceRaw = parts[0].toLowerCase();
@@ -816,7 +816,7 @@ if (content.startsWith('.cfrig')) {
                 : null;
 
   if (!choice) {
-    return message.channel.send('⚠️ Invalid choice. Use `.cfrig heads` or `.cfrig tails` (or H/T).');
+    return message.channel.send('⚠️ Invalid choice. Use `.coinrig heads` or `.coinrig tails` (or H/T).');
   }
 
   coinRigMap.set(allowedUserId, choice);
@@ -898,7 +898,7 @@ if (content.startsWith('.cfrig')) {
         // 🔒 Cheats
         { name: '.giveaway ban', desc: 'Ban a user from joining giveaways.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
         { name: '.giveaway rig', desc: 'Allow a user to join but not win.', args: '@User', roles: ['Owner'], category: '🔒 Cheats' },
-        { name: '.cfrig', desc: 'Rig the next coin flip result (Owner-only).', args: '<heads|tails|H|T>', roles: ['Owner'], category: '🔒 Cheats' },
+        { name: '.coinrig', desc: 'Rig the next coin flip result (Owner-only).', args: '<heads|tails|H|T>', roles: ['Owner'], category: '🔒 Cheats' },
       ];
 
       // Group by category
@@ -2558,6 +2558,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
