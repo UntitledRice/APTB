@@ -776,6 +776,7 @@ if (!isCommand) {
         { name: '.whois', desc: 'Show detailed info about a user (roles, join date, etc).', args: '<userId or mention>', roles: ['Staff'], category: '🔵 Information' },
 
         // 🟣 Staff Utilities
+        { name: '.modlog', desc: 'View most recent commands by a staff member.', args: '<userId or mention>', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.giveaway', desc: 'Create, edit, or delete giveaways.', args: 'create/edit/delete [params]', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.welcome', desc: 'Send a welcome message to a new staff member.', args: '@User', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.vouch', desc: 'Ask others to vouch for you in the staff channel.', args: 'none', roles: ['Staff'], category: '🟣 Staff Utilities' },
@@ -1909,21 +1910,32 @@ await logActionStructured({
       return;
     }
 
-    // ---------- .modlog command ----------
+// ---------- .modlog command ----------
 if (content.startsWith('.modlog')) {
   await recordUsage('.modlog');
   if (!isStaff) return message.channel.send('❌ Only Staff can use this command.');
 
-  const target = message.mentions.users.first() || client.users.cache.get(args[0]);
-  if (!target) return message.channel.send('⚠️ Usage: `.modlog <@user>` or `.modlog <userID>`');
+  const arg = content.split(/\s+/)[1];
+  if (!arg) return message.channel.send('⚠️ Usage: `.modlog <@user>` or `.modlog <userID>`');
+
+  // Extract numeric ID from mention or raw ID
+  const userId = arg.replace(/[<@!>]/g, '');
+
+  let target = null;
+  try {
+    target = await client.users.fetch(userId);
+  } catch {
+    return message.channel.send('❌ User not found. Make sure the ID is correct or they share a server.');
+  }
 
   const logFile = path.join(LOGS_DIR, 'commands.log');
   if (!fs.existsSync(logFile)) return message.channel.send('⚠️ No command logs found.');
 
   const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
-  const userLogs = logs.filter(line => line.includes(target.id));
+  const userLogs = logs.filter(line => line.includes(userId));
 
-  if (!userLogs.length) return message.channel.send(`📭 No commands found for ${target.tag}.`);
+  if (!userLogs.length)
+    return message.channel.send(`📭 No recorded commands for **${target.tag}**.`);
 
   const formatted = userLogs
     .slice(-10) // last 10 entries
@@ -1931,7 +1943,7 @@ if (content.startsWith('.modlog')) {
       try {
         const entry = JSON.parse(line);
         const date = new Date(entry.time);
-        const timestamp = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()} ${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}`;
+        const timestamp = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
         return `• **${entry.command}** in <#${entry.channelId}> — *${timestamp}*`;
       } catch {
         return line;
