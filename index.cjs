@@ -1911,6 +1911,119 @@ await logActionStructured({
       return;
     }
 
+    // ---------- .mute (staff only) ----------
+// Usage: .mute <@user|userId> <duration> <reason>
+// duration format: 10m 2h 1d 30s  (s,m,h,d) — all args mandatory
+if (content.startsWith('.mute')) {
+  await recordUsage('.mute');
+  if (!isStaff) return message.channel.send('❌ Only Staff can use this command.');
+
+  const parts = contentRaw.split(/\s+/).slice(1); // remove ".mute"
+  if (parts.length < 3) return message.channel.send('⚠️ Usage: `.mute <@user|id> <duration> <reason>` (all args required).');
+
+  const targetArg = parts[0];
+  const durationRaw = parts[1];
+  const reason = parts.slice(2).join(' ').trim();
+
+  const targetId = targetArg.replace(/[<@!>]/g, '');
+  const member = await message.guild.members.fetch(targetId).catch(()=>null);
+  if (!member) return message.channel.send('⚠️ Member not found.');
+
+  // parse duration
+  const m = durationRaw.match(/^(\d+)([smhd])$/i);
+  if (!m) return message.channel.send('⚠️ Invalid duration format. Use e.g. 10m, 2h, 1d, 30s.');
+  const val = parseInt(m[1], 10);
+  const unit = m[2].toLowerCase();
+  const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+  const durationMs = val * unitMs[unit];
+
+  const muteRole = message.guild.roles.cache.get(MUTED_ROLE_ID);
+  if (!muteRole) return message.channel.send('❌ Mute role not found (check MUTED_ROLE_ID).');
+
+  // permission / hierarchy checks
+  if (!message.guild.members.me.permissions.has('ManageRoles')) {
+    return message.channel.send('❌ I need Manage Roles permission to add the mute role.');
+  }
+  if (member.roles.highest.position >= message.guild.members.me.roles.highest.position) {
+    return message.channel.send('❌ I cannot modify roles for this user (role hierarchy).');
+  }
+
+  try {
+    await member.roles.add(muteRole);
+    await message.channel.send(`🔇 ${member.user.tag} has been muted for **${durationRaw}**. Reason: ${reason}`);
+    await logActionStructured({
+      command: '.mute',
+      message,
+      details: `Muted ${member.user.tag} (${member.id}) for ${durationRaw}. Reason: ${reason}`,
+      channelId: MOD_LOG_CHANNEL_ID
+    });
+
+    // schedule auto-unmute
+    setTimeout(async () => {
+      try {
+        const fresh = await message.guild.members.fetch(member.id).catch(()=>null);
+        if (fresh && fresh.roles.cache.has(MUTED_ROLE_ID)) {
+          await fresh.roles.remove(muteRole);
+          await logActionStructured({
+            command: 'Auto-unmute',
+            message: { author: { id: client.user.id }, guild: { id: message.guild.id }, channel: { id: message.channel.id } },
+            details: `Auto-unmuted ${fresh.user.tag} after ${durationRaw}`
+          });
+          // optional public notice:
+          await message.channel.send(`✅ Auto-unmute: ${fresh.user.tag}`);
+        }
+      } catch (err) {
+        console.error('Auto-unmute error:', err);
+      }
+    }, durationMs);
+  } catch (err) {
+    console.error('❌ .mute failed:', err);
+    return message.channel.send('❌ Failed to mute member. Check bot permissions and role hierarchy.');
+  }
+  return;
+}
+
+// ---------- .unmute (staff only) ----------
+// Usage: .unmute <@user|userId> <reason>   (reason mandatory)
+if (content.startsWith('.unmute')) {
+  await recordUsage('.unmute');
+  if (!isStaff) return message.channel.send('❌ Only Staff can use this command.');
+
+  const parts = contentRaw.split(/\s+/).slice(1);
+  if (parts.length < 2) return message.channel.send('⚠️ Usage: `.unmute <@user|id> <reason>` (reason required).');
+
+  const targetId = parts[0].replace(/[<@!>]/g, '');
+  const reason = parts.slice(1).join(' ').trim();
+
+  const member = await message.guild.members.fetch(targetId).catch(()=>null);
+  if (!member) return message.channel.send('⚠️ Member not found.');
+
+  const muteRole = message.guild.roles.cache.get(MUTED_ROLE_ID);
+  if (!muteRole) return message.channel.send('❌ Mute role not found (check MUTED_ROLE_ID).');
+
+  if (!message.guild.members.me.permissions.has('ManageRoles')) {
+    return message.channel.send('❌ I need Manage Roles permission to remove the mute role.');
+  }
+
+  try {
+    if (!member.roles.cache.has(MUTED_ROLE_ID)) {
+      return message.channel.send('⚠️ That user is not muted.');
+    }
+    await member.roles.remove(muteRole);
+    await message.channel.send(`🔊 ${member.user.tag} has been unmuted. Reason: ${reason}`);
+    await logActionStructured({
+      command: '.unmute',
+      message,
+      details: `Unmuted ${member.user.tag} (${member.id}). Reason: ${reason}`,
+      channelId: MOD_LOG_CHANNEL_ID
+    });
+  } catch (err) {
+    console.error('❌ .unmute failed:', err);
+    return message.channel.send('❌ Failed to unmute member. Check bot permissions and role hierarchy.');
+  }
+  return;
+}
+
 // ---------- .modlog command ----------
 if (content.startsWith('.modlog')) {
   const args = content.split(/\s+/);
@@ -1919,7 +2032,17 @@ if (content.startsWith('.modlog')) {
 
   const targetId = targetMention.replace(/[<@!>]/g, '');
   const logDir = path.join(process.cwd(), 'logs');
-  const files = fs.readdirSync(logDir).filter(f => f.endsWith('.log')).sort().reverse(); // newest first
+// robust: get files sorted by mtime desc (newest first)
+let files = [];
+try {
+  files = fs.readdirSync(logDir)
+    .filter(f => f.endsWith('.log') || f.endsWith('.jsonl'))
+    .map(f => ({ name: f, mtime: fs.statSync(path.join(logDir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .map(x => x.name);
+} catch (e) {
+  files = [];
+}
 
   let entries = [];
   for (const file of files) {
@@ -1974,10 +2097,15 @@ if (content.startsWith('.punishlog')) {
   const targetId = targetMention.replace(/[<@!>]/g, '');
   const logDir = path.join(process.cwd(), 'logs');
 
-  // Accept both .log and .jsonl files (some systems use either)
-  const files = fs.existsSync(logDir)
-    ? fs.readdirSync(logDir).filter(f => f.endsWith('.log') || f.endsWith('.jsonl')).sort().reverse()
-    : [];
+// Accept both .log and .jsonl files, sort by mtime desc (newest first)
+let files = [];
+if (fs.existsSync(logDir)) {
+  files = fs.readdirSync(logDir)
+    .filter(f => f.endsWith('.log') || f.endsWith('.jsonl'))
+    .map(f => ({ name: f, mtime: fs.statSync(path.join(logDir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .map(x => x.name);
+}
 
   const allowedCommands = new Set([
     '.warn', '.resetwarn', '.mute', '.unmute', // explicit commands
@@ -2025,20 +2153,19 @@ if (content.startsWith('.punishlog')) {
       console.error('Failed reading log file for punishlog:', file, e?.message || e);
     }
 
-    if (entries.length >= 200) break; // safety limit while scanning many files
+    if (entries.length >= 10) break; // safety limit while scanning many files
   }
 
   if (entries.length === 0) return message.channel.send('⚠️ No punishment-related logs found for that user.');
 
-  // Format: show the 10 most-recent punishment entries (reverse so newest first)
-  const formatted = entries
-    .slice(-10)        // latest 10 entries (oldest->newest)
-    .reverse()         // newest->oldest
-    .map(e => {
-      const det = e.details ? ` — ${e.details}` : '';
-      return `• **${e.command}** — ${e.time}${det}`;
-    })
-    .join('\n');
+// Format: show up to the 10 most-recent punishment entries (newest -> oldest)
+const formatted = entries
+  .slice(0, 10)      // first 10 entries (newest -> oldest because we scanned newest files first)
+  .map(e => {
+    const det = e.details ? ` — ${e.details}` : '';
+    return `• **${e.command}** — ${e.time}${det}`;
+  })
+  .join('\n');
 
   const embed = new EmbedBuilder()
     .setTitle(`🔨 Punishment History for <@${targetId}>`)
@@ -2054,7 +2181,6 @@ if (content.startsWith('.punishlog')) {
     console.error('❌ Message handler error:', err);
   }
 });
-
 
 // ---------- Unified interaction handler (modal + buttons) ----------
 client.on('interactionCreate', async (interaction) => {
@@ -2289,6 +2415,59 @@ client.on('interactionCreate', async (interaction) => {
         }
       });
 
+// ---------- Join / Leave embeds (sends to channel ID 1424376959869259867) ----------
+const JOIN_LEAVE_CHANNEL_ID = '1424376959869259867';
+
+client.on('guildMemberAdd', async (member) => {
+  try {
+    const ch = await client.channels.fetch(JOIN_LEAVE_CHANNEL_ID).catch(()=>null);
+    if (!ch || !ch.send) return;
+
+    const createdTs = Math.floor(member.user.createdAt.getTime() / 1000);
+    const joinedTs = member.joinedAt ? Math.floor(member.joinedAt.getTime() / 1000) : Math.floor(Date.now()/1000);
+
+    const embed = new EmbedBuilder()
+      .setTitle('Member Joined')
+      .setDescription(`<@${member.id}>`)
+      .addFields(
+        { name: 'Username', value: `${member.user.tag}`, inline: true },
+        { name: 'User ID', value: `${member.id}`, inline: true },
+        { name: 'Account Created', value: `<t:${createdTs}:F>\n<t:${createdTs}:R>`, inline: true },
+        { name: 'Date Joined', value: `<t:${joinedTs}:F>\n<t:${joinedTs}:R>`, inline: true }
+      )
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 1024 }))
+      .setColor(0x00ff88)
+      .setTimestamp();
+
+    await ch.send({ embeds: [embed] });
+  } catch (err) { console.error('Join embed error:', err); }
+});
+
+client.on('guildMemberRemove', async (member) => {
+  try {
+    const ch = await client.channels.fetch(JOIN_LEAVE_CHANNEL_ID).catch(()=>null);
+    if (!ch || !ch.send) return;
+
+    const createdTs = Math.floor(member.user.createdAt.getTime() / 1000);
+    const joinedTs = member.joinedAt ? Math.floor(member.joinedAt.getTime() / 1000) : null;
+
+    const embed = new EmbedBuilder()
+      .setTitle('Member Left')
+      .setDescription(`${member.user.tag}`)
+      .addFields(
+        { name: 'Username', value: `${member.user.tag}`, inline: true },
+        { name: 'User ID', value: `${member.id}`, inline: true },
+        { name: 'Account Created', value: `<t:${createdTs}:F>\n<t:${createdTs}:R>`, inline: true },
+        { name: 'Date Joined', value: joinedTs ? `<t:${joinedTs}:F>\n<t:${joinedTs}:R>` : 'Unknown', inline: true }
+      )
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 1024 }))
+      .setColor(0xff4444)
+      .setTimestamp();
+
+    await ch.send({ embeds: [embed] });
+  } catch (err) { console.error('Leave embed error:', err); }
+});
+
       // -------------------- Periodic Save Tasks --------------------
 
 // Save logs every 10 minutes
@@ -2305,5 +2484,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
