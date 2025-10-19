@@ -810,8 +810,8 @@ if (!isCommand) {
         { name: '.unmute', desc: 'Unmute a previously muted user.', args: '@User [Reason]', roles: ['Staff'], category: '🔴 Moderation' },
 
         // ⚙️ Server Management
-        { name: '.stats', desc: 'Create or toggle persistent member/bot stats channels.', args: 'none', roles: ['Staff'], category: '⚙️ Server Management' },
-        { name: '.debug', desc: 'Safely self-test all bot commands in simulation mode (no real actions).', args: 'none', roles: ['Owner', 'Staff'], category: '⚙️ Server Management' },
+        { name: '.stats', desc: 'Create or toggle persistent member/bot stats channels.', args: 'none', roles: ['Owner'], category: '⚙️ Server Management' },
+        { name: '.debug', desc: 'Safely self-test all bot commands in simulation mode (no real actions).', args: 'none', roles: ['Owner'], category: '⚙️ Server Management' },
 
         // 🧩 System Automation
         { name: 'Logging System', desc: 'Structured log buffering and embed tracking.', args: 'Auto', roles: ['System'], category: '🧩 System Automation', status: systemStatus.logging },
@@ -1964,7 +1964,92 @@ if (content.startsWith('.modlog')) {
 
   return message.channel.send({ embeds: [embed] });
 }
-    
+
+    // ---------- .punishlog command ----------
+if (content.startsWith('.punishlog')) {
+  const args = content.split(/\s+/);
+  const targetMention = args[1];
+  if (!targetMention) return message.channel.send('⚠️ Usage: `.punishlog <@user or userID>`');
+
+  const targetId = targetMention.replace(/[<@!>]/g, '');
+  const logDir = path.join(process.cwd(), 'logs');
+
+  // Accept both .log and .jsonl files (some systems use either)
+  const files = fs.existsSync(logDir)
+    ? fs.readdirSync(logDir).filter(f => f.endsWith('.log') || f.endsWith('.jsonl')).sort().reverse()
+    : [];
+
+  const allowedCommands = new Set([
+    '.warn', '.resetwarn', '.mute', '.unmute', // explicit commands
+    'AutoMod', 'AutoMod-mute', 'AutoMod-unmute', 'AutoMod' // auto-moderation entries
+  ]);
+
+  let entries = [];
+  for (const file of files) {
+    try {
+      const filePath = path.join(logDir, file);
+      const contentStr = fs.readFileSync(filePath, 'utf8');
+      const lines = contentStr.split('\n').filter(l => l && (l.includes(`"userId":"${targetId}"`) || l.includes(targetId)));
+
+      for (const line of lines) {
+        // Try JSON parse first (most structured logs are JSON)
+        try {
+          const data = JSON.parse(line);
+          const cmd = (data.command || '').toString();
+          const details = data.details || '';
+          // Keep entries that either are in allowedCommands or mention punish-related words in details
+          if (
+            allowedCommands.has(cmd) ||
+            /mute|muted|unmute|unmuted|warn|warning|resetwarn|automod/i.test(cmd + ' ' + details)
+          ) {
+            entries.push({
+              command: cmd || 'unknown',
+              time: data.time ? new Date(data.time).toLocaleString('en-US', { timeZone: 'UTC', hour12: false }) : 'Unknown',
+              details: (details || '').toString().slice(0, 800)
+            });
+          }
+        } catch (err) {
+          // Non-JSON fallback: try to catch textual triggers
+          if (/(AutoMod|autowarn|warn|mute|unmute|resetwarn)/i.test(line)) {
+            const m = line.match(/(AutoMod|autowarn|warn|mute|unmute|resetwarn)/i);
+            entries.push({
+              command: m ? m[0] : 'text-log',
+              time: 'Unknown',
+              details: line.slice(0, 800)
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // ignore file read errors and continue
+      console.error('Failed reading log file for punishlog:', file, e?.message || e);
+    }
+
+    if (entries.length >= 200) break; // safety limit while scanning many files
+  }
+
+  if (entries.length === 0) return message.channel.send('⚠️ No punishment-related logs found for that user.');
+
+  // Format: show the 10 most-recent punishment entries (reverse so newest first)
+  const formatted = entries
+    .slice(-10)        // latest 10 entries (oldest->newest)
+    .reverse()         // newest->oldest
+    .map(e => {
+      const det = e.details ? ` — ${e.details}` : '';
+      return `• **${e.command}** — ${e.time}${det}`;
+    })
+    .join('\n');
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🔨 Punishment History for <@${targetId}>`)
+    .setDescription(formatted)
+    .setColor(0xff3333)
+    .setFooter({ text: `Found ${entries.length} total punish entries` })
+    .setTimestamp();
+
+  return message.channel.send({ embeds: [embed] });
+}
+
   } catch (err) {
     console.error('❌ Message handler error:', err);
   }
@@ -2220,4 +2305,5 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
