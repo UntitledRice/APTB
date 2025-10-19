@@ -1909,6 +1909,46 @@ await logActionStructured({
       return;
     }
 
+    // ---------- .modlog command ----------
+if (content.startsWith('.modlog')) {
+  await recordUsage('.modlog');
+  if (!isStaff) return message.channel.send('❌ Only Staff can use this command.');
+
+  const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+  if (!target) return message.channel.send('⚠️ Usage: `.modlog <@user>` or `.modlog <userID>`');
+
+  const logFile = path.join(LOGS_DIR, 'commands.log');
+  if (!fs.existsSync(logFile)) return message.channel.send('⚠️ No command logs found.');
+
+  const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+  const userLogs = logs.filter(line => line.includes(target.id));
+
+  if (!userLogs.length) return message.channel.send(`📭 No commands found for ${target.tag}.`);
+
+  const formatted = userLogs
+    .slice(-10) // last 10 entries
+    .map(line => {
+      try {
+        const entry = JSON.parse(line);
+        const date = new Date(entry.time);
+        const timestamp = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()} ${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}`;
+        return `• **${entry.command}** in <#${entry.channelId}> — *${timestamp}*`;
+      } catch {
+        return line;
+      }
+    })
+    .join('\n');
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📝 Command History for ${target.tag}`)
+    .setDescription(formatted)
+    .setColor(0x2b6cb0)
+    .setFooter({ text: `User ID: ${target.id}` })
+    .setTimestamp();
+
+  return message.channel.send({ embeds: [embed] });
+}
+
       // ---------- Mute / Unmute ----------
       if (content.startsWith('.mute') || content.startsWith('.unmute')) {
         await recordUsage(content.startsWith('.mute') ? '.mute' : '.unmute');
