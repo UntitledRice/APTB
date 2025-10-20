@@ -28,10 +28,9 @@ const {
   InteractionType,
   ChannelType,
 } = require('discord.js');
-// Keeps track of rigged coinflip results (userId -> "heads"/"tails")
-const coinRigMap = new Map();
 
 // -------------------- Config (edit only if you want to change IDs) --------------------
+const OWNER_ID = '754859771479457879';
 const STAFF_ROLE_ID = '1424190162983976991';
 //const HEARTBEAT_CHANNEL_ID = '1426317682575282226';
 const ACTION_LOG_CHANNEL_ID = '1426318804849262643';
@@ -48,9 +47,89 @@ const INACTIVE_FILE = path.join(process.cwd(), 'inactiveTimers.json');
 const GIVEAWAYS_FILE = path.join(process.cwd(), 'giveaways.json');
 const GIVEAWAY_BANS_FILE = path.join(process.cwd(), 'giveawayBans.json');
 const GIVEAWAY_RIGGED_FILE = path.join(process.cwd(), 'giveawayRigged.json');
+const TICKET_STATE_FILE = path.join(process.cwd(), 'data', 'tickets_state.json');
+// Keeps track of rigged coinflip results (userId -> "heads"/"tails")
+const coinRigMap = new Map();
 
 // Ensure logs dir exists
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+// Ensure data folder + default state exist
+try {
+  if (!fs.existsSync(path.join(process.cwd(), 'data'))) fs.mkdirSync(path.join(process.cwd(), 'data'));
+  if (!fs.existsSync(TICKET_STATE_FILE)) fs.writeFileSync(TICKET_STATE_FILE, JSON.stringify({ posted: [] }, null, 2));
+} catch (err) { console.error('Failed ensure ticket storage:', err); }
+
+function readTicketState() {
+  try {
+    return JSON.parse(fs.readFileSync(TICKET_STATE_FILE, 'utf8'));
+  } catch (e) {
+    return { posted: [] };
+  }
+}
+function writeTicketState(state) {
+  try {
+    fs.writeFileSync(TICKET_STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (e) { console.error('Failed write ticket state:', e); }
+}
+
+// Reference role/category IDs you requested (editable mapping)
+const TICKET_REFERENCES = {
+  // categories
+  categories: {
+    support: '1424211950069481492', // Support category
+    sellbuy: '1424383802402275489', // Sell/buy Spawners
+    gwclaim: '1424383655278678069', // Giveaway Claim Tickets
+    partner: '1425230917110206566', // Partner tickets
+  },
+  // roles to ping per ticket
+  roles: {
+    staff: '1424190162983976991',
+    buyer: '1425194486715387924',
+    seller: '1425194948541812937',
+    partnerManager: '1424203753552220170',
+    seniorAdmin: '1424193103744733335',
+    headAdmin: '1424199126991507608',
+    admin: '1424199702596948072',
+    summonAPT: '1424189356008280094',
+    trialMod: '1424205270963458111',
+  }
+};
+
+// Ticket catalog (use this structure to store each ticket type)
+const SAVED_TICKETS = [
+  {
+    id: 1,
+    name: 'Support tickets',
+    description: 'Pick one of the following to best assist you. False claims or troll tickets will be closed and you may be muted.',
+    buttons: [
+      { id: 'support:general', label: 'General Support' },
+      { id: 'support:sell', label: 'Sell Spawners' },
+      { id: 'support:buy', label: 'Buy Spawners' },
+      { id: 'support:gw', label: 'GW Claim' },
+      { id: 'support:partner', label: 'Partner' },
+      { id: 'support:wager', label: 'Wager' },
+      { id: 'support:suggestions', label: 'Suggestions' }
+    ]
+  },
+  {
+    id: 2,
+    name: 'Applications',
+    description: 'Pick one of the following applications to apply for. Troll tickets will be closed and you may be muted.',
+    buttons: [
+      { id: 'apps:staff', label: 'Staff' },
+      { id: 'apps:pm', label: 'Partner Manager' },
+      { id: 'apps:sponsor', label: 'Sponsor' },
+      { id: 'apps:trusted', label: 'Trusted Roles' },
+      { id: 'apps:vouches', label: 'Vouches Roles' }
+    ]
+  }
+];
+
+// Helper to format timestamp mm/dd/yyyy hh:MM (24h)
+function formatTicketTimestamp(date = new Date()) {
+  const pad = s => String(s).padStart(2, '0');
+  return `${pad(date.getMonth()+1)}/${pad(date.getDate())}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 // -------------------- Minimal helpers --------------------
 // Safe JSON reading with fallback to empty object
@@ -255,7 +334,71 @@ try {
       console.log(`- Giveaway Bans: ${Object.keys(giveawayBans || {}).length}`);
       console.log(`- Giveaway Rigged: ${Object.keys(giveawayRigged || {}).length}`);
       console.log('🎉 APTBot startup complete.');
-    });
+
+      // after printing persistent data on ready
+try {
+  await resumeInactiveTimers(client);
+  console.log(`✅ Attempted to resume inactive timers on startup.`);
+} catch (err) {
+  console.warn('⚠️ Failed to resume inactive timers on ready:', err);
+}
+
+      // ---------- Ticket startup persistence: clean old posted messages and re-post ----------
+  try {
+    const state = readTicketState();
+    const newPosted = [];
+
+    for (const rec of state.posted || []) {
+      // rec shape: { channelId, messageId, ticketListId } where ticketListId = which saved catalog id
+      try {
+        const ch = await client.channels.fetch(rec.channelId).catch(()=>null);
+        if (ch && (typeof ch.isTextBased === 'function' ? ch.isTextBased() : ch.isTextBased) && rec.messageId) {
+          // try delete old message (ignore if already deleted)
+          await ch.messages.fetch(rec.messageId).then(m => m.delete()).catch(()=>null);
+        }
+      } catch(e){ console.warn('ticket startup delete failed', e); }
+      // re-post fresh menu in the same channel
+      try {
+        const ch = await client.channels.fetch(rec.channelId).catch(()=>null);
+        if (!ch || !(typeof ch.isTextBased === 'function' ? ch.isTextBased() : ch.isTextBased)) continue;
+
+        const ticketDef = SAVED_TICKETS.find(t => t.id === rec.ticketListId) || SAVED_TICKETS[0];
+        const embed = new EmbedBuilder()
+          .setTitle(`${ticketDef.name}`)
+          .setDescription(ticketDef.description)
+          .setFooter({ text: `Ticket menu — posted by bot` })
+          .setTimestamp();
+
+        // Buttons (ActionRow)
+        const rows = [];
+        for (let i = 0; i < ticketDef.buttons.length; i += 5) {
+          const slice = ticketDef.buttons.slice(i, i+5);
+          const actionRow = new ActionRowBuilder();
+          slice.forEach(btn => {
+            actionRow.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`ticket_menu:${ticketDef.id}:${btn.id}`)
+                .setLabel(btn.label)
+                .setStyle(ButtonStyle.Primary)
+            );
+          });
+          rows.push(actionRow);
+        }
+
+        const sent = await ch.send({ embeds: [embed], components: rows });
+        newPosted.push({ channelId: rec.channelId, messageId: sent.id, ticketListId: ticketDef.id });
+      } catch (e) {
+        console.error('Failed re-post ticket menu on ready:', e);
+      }
+    }
+
+    // write new posted list
+    writeTicketState({ posted: newPosted });
+    console.log(`Ticket menus re-posted: ${newPosted.length}`);
+  } catch (err) {
+    console.error('Ticket readiness error:', err);
+  }
+});  // <-- closes client.once('ready', async () => { ... })
 
     // Handle disconnects / reconnects
     client.on('shardDisconnect', () => console.warn('⚠️ Discord connection lost.'));
@@ -477,6 +620,112 @@ async function saveGiveawayRigged() {
   try {
     await fs.promises.writeFile(GIVEAWAY_RIGGED_FILE, JSON.stringify(giveawayRigged, null, 2));
   } catch (e) { console.warn('Failed to save giveaway rigged:', e); }
+}
+
+// -------------------- Resume inactive ticket timers on startup --------------------
+async function resumeInactiveTimers(client) {
+  try {
+    if (!inactiveTimers || !Object.keys(inactiveTimers).length) return;
+
+    for (const channelId of Object.keys(inactiveTimers)) {
+      const timer = inactiveTimers[channelId];
+      // fetch the channel from client (not message)
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (!channel) {
+        // channel gone — remove persisted timer
+        delete inactiveTimers[channelId];
+        safeWriteJSON(INACTIVE_FILE, inactiveTimers);
+        continue;
+      }
+
+      // fetch the member from the channel's guild
+      const target = await channel.guild.members.fetch(timer.targetId).catch(() => null);
+      if (!target) {
+        // invalid user — remove persisted timer
+        delete inactiveTimers[channelId];
+        safeWriteJSON(INACTIVE_FILE, inactiveTimers);
+        continue;
+      }
+
+      // guard defaults (backwards compat if totalSeconds missing)
+      let totalSeconds = timer.totalSeconds || (12 * 60 * 60);
+
+      const embed = new EmbedBuilder()
+        .setTitle('⏳ Inactivity Countdown')
+        .setDescription(`Ticket for ${target} will auto-close in **12 hours** unless they react with ✅.`)
+        .setColor(0xffaa00)
+        .setFooter({ text: 'Waiting for user activity.' });
+
+      const countdownMsg = await channel.messages.fetch(timer.countdownMsgId).catch(() => null);
+      if (!countdownMsg) {
+        // message gone — clean up persisted timer
+        delete inactiveTimers[channelId];
+        safeWriteJSON(INACTIVE_FILE, inactiveTimers);
+        continue;
+      }
+
+      // filter for just the target's ✅
+      const filter = (reaction, user) => reaction.emoji?.name === '✅' && user.id === target.id;
+      const collector = countdownMsg.createReactionCollector({ filter, time: totalSeconds * 1000 });
+
+      // Resume the countdown (update every minute to save resources)
+      let interval = setInterval(async () => {
+        try {
+          totalSeconds -= 60;
+          if (totalSeconds <= 0) return;
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+          const seconds = totalSeconds % 60;
+          const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+          const updatedEmbed = EmbedBuilder.from(embed).setDescription(`Ticket for ${target} will auto-close in **${timeStr}** unless they react with ✅.`);
+          await countdownMsg.edit({ embeds: [updatedEmbed] }).catch(() => {});
+        } catch (err) {
+          console.warn('resumeInactiveTimers interval update failed:', err);
+        }
+      }, 60 * 1000);
+
+      collector.on('collect', async (reaction, user) => {
+        try {
+          clearInterval(interval);
+          await countdownMsg.edit({
+            embeds: [new EmbedBuilder()
+              .setTitle('✅ Inactivity Cancelled')
+              .setDescription(`${target} reacted — countdown stopped.`)
+              .setColor(0x00ff00)
+            ]
+          }).catch(() => {});
+          await channel.send(`✅ ${target} responded — ticket will remain open.`).catch(() => {});
+
+          delete inactiveTimers[channelId];
+          safeWriteJSON(INACTIVE_FILE, inactiveTimers);
+        } catch (err) { console.error('resumeInactiveTimers collect handler error:', err); }
+      });
+
+      collector.on('end', async collected => {
+        try {
+          clearInterval(interval);
+          if (collected.size === 0) {
+            await countdownMsg.edit({
+              embeds: [new EmbedBuilder()
+                .setTitle('⛔ Ticket Closed')
+                .setDescription(`12 hours passed without a reaction from ${target}. The ticket will now close.`)
+                .setColor(0xff0000)
+              ]
+            }).catch(() => {});
+            await channel.send(`🔒 Ticket closed due to inactivity (${target}).`).catch(() => {});
+
+            // attempt to delete the ticket channel
+            try { await channel.delete(); } catch (e) { console.error('Failed to delete ticket channel after inactivity:', e); }
+
+            delete inactiveTimers[channelId];
+            safeWriteJSON(INACTIVE_FILE, inactiveTimers);
+          }
+        } catch (err) { console.error('resumeInactiveTimers end handler error:', err); }
+      });
+    }
+  } catch (err) {
+    console.error('Failed to resume inactive timers:', err);
+  }
 }
 
 // In-memory timers for running giveaways so we can re-schedule/clear them
@@ -736,6 +985,7 @@ if (!isCommand) {
       return;
     }
 }
+
     
     // ---------- simple public commands ----------
     if (content === '.ping') {
@@ -821,6 +1071,85 @@ if (content.startsWith('.coinrig')) {
 
   coinRigMap.set(allowedUserId, choice);
   return message.channel.send(`🎩 The next coin flip for <@${allowedUserId}> is rigged to **${choice.toUpperCase()}**.`);
+}
+
+    // ---------- .ticket command (owner only) ----------
+if (content.startsWith('.ticket')) {
+  if (message.author.id !== OWNER_ID) return message.channel.send('❌ Only the owner can use this command.');
+  const parts = contentRaw.split(/\s+/).slice(1);
+  const pick = parts[0] ? parseInt(parts[0], 10) : null;
+
+  // function to send a ticket list embed + buttons and persist the message info
+  const sendTicketMenu = async (ticketDef, targetChannel) => {
+    const embed = new EmbedBuilder()
+      .setTitle(`${ticketDef.name} — Ticket #${ticketDef.id}`)
+      .setDescription(ticketDef.description)
+      .setFooter({ text: `Ticket menu — pick an option` })
+      .setTimestamp();
+
+    const rows = [];
+    for (let i = 0; i < ticketDef.buttons.length; i += 5) {
+      const slice = ticketDef.buttons.slice(i, i+5);
+      const actionRow = new ActionRowBuilder();
+      slice.forEach(btn => {
+        actionRow.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`ticket_menu:${ticketDef.id}:${btn.id}`)
+            .setLabel(btn.label)
+            .setStyle(ButtonStyle.Primary)
+        );
+      });
+      rows.push(actionRow);
+    }
+
+    const sent = await targetChannel.send({ embeds: [embed], components: rows });
+    // persist posted message for restart cleanup/re-post
+    const state = readTicketState();
+    // remove any existing record for this channel & ticket id
+    state.posted = state.posted.filter(p => !(p.channelId === targetChannel.id && p.ticketListId === ticketDef.id));
+    state.posted.push({ channelId: targetChannel.id, messageId: sent.id, ticketListId: ticketDef.id });
+    writeTicketState(state);
+    return sent;
+  };
+
+  if (!pick) {
+    // Post the combined list of all saved tickets (owner asked for overview)
+    // Build embed that lists available ticket menus with description and the number to use.
+    const overview = new EmbedBuilder()
+      .setTitle('Saved Tickets')
+      .setDescription('Click one of the buttons below to start a ticket flow. Use `.ticket <#>` to post a specific menu.')
+      .setTimestamp();
+
+    // Build a row of buttons for each SAVED_TICKETS entry (one button per ticket menu)
+    const rows = [];
+    for (let i = 0; i < SAVED_TICKETS.length; i += 5) {
+      const slice = SAVED_TICKETS.slice(i, i+5);
+      const row = new ActionRowBuilder();
+      slice.forEach(def => {
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`ticket_list:${def.id}`)
+            .setLabel(`#${def.id} — ${def.name}`)
+            .setStyle(ButtonStyle.Secondary)
+        );
+      });
+      rows.push(row);
+    }
+
+    const sent = await message.channel.send({ embeds: [overview], components: rows });
+    // Persist overview message as well (owner may want to keep it)
+    const state = readTicketState();
+    state.posted = state.posted.filter(p => !(p.channelId === message.channel.id && p.ticketListId === 0));
+    state.posted.push({ channelId: message.channel.id, messageId: sent.id, ticketListId: 0 });
+    writeTicketState(state);
+    return;
+  } else {
+    // owner requested .ticket 1 or .ticket 2 -> post that specific ticket list in current channel
+    const ticketDef = SAVED_TICKETS.find(t => t.id === pick);
+    if (!ticketDef) return message.channel.send('⚠️ Unknown ticket number. Use `.ticket` to see available tickets.');
+    await sendTicketMenu(ticketDef, message.channel);
+    return message.channel.send(`✅ Posted ticket menu: #${ticketDef.id} — ${ticketDef.name}`);
+  }
 }
 
     // ---------- HELP (dropdown with live system status) ----------
@@ -1626,81 +1955,6 @@ if (content === '.stats') {
       return;
     }
 
-    // ------------ On Bot Restart: Resume Timers ------------
-
-    // After restart, check and resume inactive timers
-    Object.keys(inactiveTimers).forEach(async (channelId) => {
-      const timer = inactiveTimers[channelId];
-      const channel = await message.guild.channels.fetch(channelId).catch(() => null);
-
-      if (!channel) {
-        // Remove the timer if the channel doesn't exist anymore
-        delete inactiveTimers[channelId];
-        safeWriteJSON(INACTIVE_FILE, inactiveTimers);
-        return;
-      }
-
-      const target = await message.guild.members.fetch(timer.targetId).catch(() => null);
-      if (!target) return;
-
-      let totalSeconds = timer.totalSeconds;
-
-      const embed = new EmbedBuilder()
-        .setTitle('⏳ Inactivity Countdown')
-        .setDescription(`Ticket for ${target} will auto-close in **12 hours** unless they react with ✅.`)
-        .setColor(0xffaa00)
-        .setFooter({ text: 'Waiting for user activity...' });
-
-      const countdownMsg = await channel.messages.fetch(timer.countdownMsgId).catch(() => null);
-      if (!countdownMsg) return;
-
-      const filter = (reaction, user) => reaction.emoji.name === '✅' && user.id === target.id;
-      const collector = countdownMsg.createReactionCollector({ filter, time: totalSeconds * 1000 });
-
-      // Resume the timer, and update every minute
-      let interval = setInterval(async () => {
-        totalSeconds -= 60;
-        if (totalSeconds <= 0) return;
-
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
-        const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        const updatedEmbed = EmbedBuilder.from(embed).setDescription(`Ticket for ${target} will auto-close in **${timeStr}** unless they react with ✅.`);
-        await countdownMsg.edit({ embeds: [updatedEmbed] }).catch(() => {});
-      }, 60 * 1000);
-
-      collector.on('collect', async (reaction, user) => {
-        clearInterval(interval);
-        await countdownMsg.edit({ embeds: [new EmbedBuilder().setTitle('✅ Inactivity Cancelled').setDescription(`${target} reacted — countdown stopped.`).setColor(0x00ff00)] }).catch(() => {});
-        await channel.send(`✅ ${target} responded — ticket will remain open.`);
-
-        // Remove the timer from the inactiveTimers state and update the file
-        delete inactiveTimers[channelId];
-        safeWriteJSON(INACTIVE_FILE, inactiveTimers);
-      });
-
-      collector.on('end', async collected => {
-        clearInterval(interval);
-        if (collected.size === 0) {
-          await countdownMsg.edit({ embeds: [new EmbedBuilder().setTitle('⛔ Ticket Closed').setDescription(`12 hours passed without a reaction from ${target}. The ticket will now close.`).setColor(0xff0000)] }).catch(() => {});
-          await channel.send(`🔒 Ticket closed due to inactivity (${target}).`);
-
-          // Delete the ticket channel after inactivity period (12 hours)
-          try {
-            await channel.delete(); // Delete the channel
-            console.log(`Ticket ${channel.name} closed due to inactivity.`);
-          } catch (err) {
-            console.error('❌ Error while deleting the ticket:', err);
-          }
-
-          // Remove the timer from the inactiveTimers state and update the file
-          delete inactiveTimers[channelId];
-          safeWriteJSON(INACTIVE_FILE, inactiveTimers);
-        }
-      });
-    });
-    
     // ---------- .debug (auto-test all commands safely) ----------
     if (content === '.debug') {
       if (message.author.id !== '754859771479457879') 
@@ -2256,13 +2510,13 @@ const formatted = entries
   }
 });
 
-// ---------- Unified interaction handler (modal + buttons) ----------
+// ---------- Unified interaction handler (modal + buttons + tickets) ----------
 client.on('interactionCreate', async (interaction) => {
   try {
     // ----- 1) Modal submissions -----
-    // Use method form for v14
     if (typeof interaction.isModalSubmit === 'function' && interaction.isModalSubmit()) {
-      // removeWarnModal_<uid>_<index>
+
+      // --- Remove warning modal ---
       if (interaction.customId && interaction.customId.startsWith('removeWarnModal_')) {
         try {
           const [, uid, indexStr] = interaction.customId.split('_');
@@ -2274,7 +2528,6 @@ client.on('interactionCreate', async (interaction) => {
           }
           userWarns.splice(index, 1);
           await saveWarnings().catch(() => {});
-          // try to DM the user (best-effort)
           try {
             const member = interaction.guild ? await interaction.guild.members.fetch(uid).catch(() => null) : null;
             if (member) {
@@ -2288,8 +2541,7 @@ client.on('interactionCreate', async (interaction) => {
                 ],
               }).catch(() => {});
             }
-          } catch (e) { /* ignore DM errors */ }
-
+          } catch (e) {}
           return interaction.reply({ content: '✅ Warning removed and records updated.', flags: 64 });
         } catch (err) {
           console.error('Error handling removeWarnModal:', err);
@@ -2297,16 +2549,42 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // If you have other modals, add their handlers here (check interaction.customId)
+      // ---------- Ticket system modal handling ----------
+      if (interaction.customId && interaction.customId.startsWith('ticket_modal:')) {
+        try {
+          // move the full “MODAL SUBMIT” logic here (shortened for clarity)
+          // to avoid wall of text, use the ticket modal handler from Step 4
+          // It begins with:
+          //   const [prefix, menuIdRaw, optionId, userId] = interaction.customId.split(':');
+          // and ends before the staffapp button block.
+          // ⚠️ Paste the long modal handler block from Step 4 here exactly as given.
+        } catch (err) {
+          console.error('Ticket modal error:', err);
+          return interaction.reply({ content: '❌ Failed to handle ticket form.', flags: 64 });
+        }
+      }
     }
 
     // ----- 2) Button interactions -----
-    // Use method form when available, fallback to property when not.
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
     if (isButton && interaction.customId) {
       const customId = interaction.customId;
 
-      // Helper: update giveaway embed (safe, best-effort)
+      // ---------- Ticket system buttons ----------
+      if (customId.startsWith('ticket_list:') || customId.startsWith('ticket_menu:') || customId.startsWith('staffapp:')) {
+        try {
+          // paste the entire ticket “BUTTON” logic block from Step 4 here.
+          // It starts with:
+          //   const [kind, ...rest] = interaction.customId.split(':');
+          // and ends right before the modal submit section.
+          // ⚠️ Include ticket_list, ticket_menu, and staffapp button cases.
+        } catch (err) {
+          console.error('Ticket button error:', err);
+          if (!interaction.replied) interaction.reply({ content: '❌ Ticket button failed.', flags: 64 }).catch(()=>{});
+        }
+      }
+
+      // ---------- Giveaway buttons (existing) ----------
       async function updateGiveawayEmbed(msgId) {
         try {
           const gwData = giveaways[msgId];
@@ -2324,22 +2602,20 @@ client.on('interactionCreate', async (interaction) => {
             )
             .setColor(0xffc107)
             .setTimestamp(new Date(gwData.end));
-          // preserve components so buttons remain active and unchanged
-        const existingComponents = (gm.components && gm.components.length) ? gm.components : [];
-        await gm.edit({ embeds: [embed], components: existingComponents }).catch(() => {});
+          const existingComponents = (gm.components && gm.components.length) ? gm.components : [];
+          await gm.edit({ embeds: [embed], components: existingComponents }).catch(() => {});
         } catch (err) {
           console.error('Failed to update giveaway embed:', err);
         }
       }
 
-         // ---- JOIN ----
+      // ---- JOIN ----
       if (customId === 'gw_join') {
         const msgId = interaction.message?.id;
         const gw = giveaways[msgId];
         if (!gw || !gw.active) return interaction.reply({ content: '❌ Giveaway not found or ended.', flags: 64 });
         if (giveawayBans[interaction.user.id]) return interaction.reply({ content: '🚫 Banned from giveaways.', flags: 64 });
 
-        // Already joined -> show leave option
         if (gw.participants.includes(interaction.user.id)) {
           const leaveRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`gw_leave_${msgId}`).setLabel('Leave Giveaway').setStyle(ButtonStyle.Danger)
@@ -2352,13 +2628,9 @@ client.on('interactionCreate', async (interaction) => {
         try {
           if (!gw.participants.includes(interaction.user.id)) {
             gw.participants.push(interaction.user.id);
-            try { saveGiveaways(); } catch (e) { /* best-effort */ }
+            try { saveGiveaways(); } catch (e) {}
           }
-          try {
-            await updateGiveawayEmbed(msgId);
-          } catch (e) {
-            // ignore if you want to silently swallow errors
-          }
+          try { await updateGiveawayEmbed(msgId); } catch (e) {}
           const leaveRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`gw_leave_${msgId}`).setLabel('Leave Giveaway').setStyle(ButtonStyle.Danger)
           );
@@ -2368,7 +2640,7 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // ---- LEAVE (gw_leave_<msgId>) ----
+      // ---- LEAVE ----
       if (customId.startsWith('gw_leave_')) {
         const parts = customId.split('_');
         const leaveMsgId = parts.slice(2).join('_');
@@ -2381,11 +2653,7 @@ client.on('interactionCreate', async (interaction) => {
           const idx = gwLeave.participants.indexOf(interaction.user.id);
           if (idx === -1) return interaction.reply({ content: '⚠️ You are not entered in this giveaway.', flags: 64 });
           gwLeave.participants.splice(idx, 1);
-          try {
-            saveGiveaways();
-          } catch (e) {
-            console.warn('⚠️ Failed to save giveaways file:', e);
-          }
+          try { saveGiveaways(); } catch (e) {}
           await updateGiveawayEmbed(leaveMsgId).catch(() => {});
           return interaction.reply({ content: `🗑️ You have left the giveaway **${gwLeave.prize}**.`, flags: 64 });
         } finally {
@@ -2393,7 +2661,7 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // ---- PARTICIPANTS (staff only) ----
+      // ---- PARTICIPANTS ----
       if (customId === 'gw_participants') {
         const msgId = interaction.message?.id;
         const gw = giveaways[msgId];
@@ -2404,11 +2672,7 @@ client.on('interactionCreate', async (interaction) => {
         const embed = new EmbedBuilder().setTitle('🎟️ Giveaway Participants').setDescription(list).setColor(0x2b6cb0);
         return interaction.reply({ embeds: [embed], flags: 64 });
       }
-
-      // Add more button handlers here as needed (e.g., preview edit buttons if you re-enable them)
     }
-
-    // If you have other interaction types (e.g., select menus) add them below
 
   } catch (err) {
     console.error('Unified interaction handler error:', err);
@@ -2416,7 +2680,7 @@ client.on('interactionCreate', async (interaction) => {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({ content: '❌ An error occurred handling that action.', flags: 64 });
       }
-    } catch (e) { /* ignore reply errors */ }
+    } catch (e) {}
   }
 });
 
@@ -2558,8 +2822,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
-
-
