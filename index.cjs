@@ -2573,11 +2573,123 @@ client.on('interactionCreate', async (interaction) => {
       // ---------- Ticket system buttons ----------
       if (customId.startsWith('ticket_list:') || customId.startsWith('ticket_menu:') || customId.startsWith('staffapp:')) {
         try {
-          // paste the entire ticket “BUTTON” logic block from Step 4 here.
-          // It starts with:
-          //   const [kind, ...rest] = interaction.customId.split(':');
-          // and ends right before the modal submit section.
-          // ⚠️ Include ticket_list, ticket_menu, and staffapp button cases.
+// ---------- Ticket button logic ----------
+const [kind, ...rest] = interaction.customId.split(':');
+
+if (kind === 'ticket_list') {
+  // user clicked an overview button to open a specific ticket menu
+  const menuId = parseInt(rest[0], 10);
+  const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId);
+  if (!ticketDef) return interaction.reply({ content: '⚠️ Ticket menu not found.', flags: 64 });
+
+  // build same menu but send ephemeral to the clicker so they can pick
+  const rows = [];
+  for (let i = 0; i < ticketDef.buttons.length; i += 5) {
+    const slice = ticketDef.buttons.slice(i, i + 5);
+    const actionRow = new ActionRowBuilder();
+    slice.forEach(btn => {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`ticket_menu:${ticketDef.id}:${btn.id}`)
+          .setLabel(btn.label || 'Option')
+          .setStyle(ButtonStyle.Primary)
+      );
+    });
+    rows.push(actionRow);
+  }
+
+  await interaction.reply({ embeds: [new EmbedBuilder().setTitle(ticketDef.name).setDescription(ticketDef.description || '').setTimestamp()], components: rows, flags: 64 }).catch(()=>{});
+  return;
+}
+
+if (kind === 'ticket_menu') {
+  // user picked a specific ticket option: create a private channel & notify staff
+  const [menuIdRaw, optionIdRaw] = rest;
+  const menuId = parseInt(menuIdRaw, 10);
+  const optionId = optionIdRaw;
+  const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId);
+  if (!ticketDef) return interaction.reply({ content: '⚠️ Ticket definition not found.', flags: 64 });
+
+  const option = (ticketDef.buttons || []).find(b => String(b.id) === String(optionId));
+  if (!option) return interaction.reply({ content: '⚠️ Ticket option not found.', flags: 64 });
+
+  // ensure in a guild
+  const g = interaction.guild;
+  if (!g) return interaction.reply({ content: '❌ Ticket creation must run inside a server.', flags: 64 });
+
+  // build a safe channel name
+  const sanitized = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
+  const channelName = `ticket-${sanitized}-${menuId}`;
+
+  // pick category if you have a TICKET_CATEGORY_ID variable saved; fallback to no parent
+  const parent = typeof TICKET_CATEGORY_ID !== 'undefined' ? TICKET_CATEGORY_ID : null;
+
+  // set permission overwrites: hide from everyone, allow user + staff role
+  const overwrites = [
+    { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+  ];
+  if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
+    overwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+  }
+
+  // create the channel
+  let ticketChannel;
+  try {
+    ticketChannel = await g.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      parent,
+      permissionOverwrites: overwrites
+    });
+  } catch (err) {
+    console.error('Failed to create ticket channel:', err);
+    return interaction.reply({ content: '❌ Failed to create ticket channel. Check bot permissions.', flags: 64 });
+  }
+
+  // Send initial message in ticket channel
+  try {
+    const introEmbed = new EmbedBuilder()
+      .setTitle(`🎫 Ticket — ${ticketDef.name}`)
+      .setDescription(option.openMessage || `Ticket opened for ${interaction.user.tag}\n\nOption: ${option.label || optionId}`)
+      .addFields(
+        { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
+        { name: 'Option', value: option.label || optionId, inline: true }
+      )
+      .setTimestamp();
+
+    await ticketChannel.send({ content: `${interaction.user}`, embeds: [introEmbed] });
+  } catch (err) {
+    console.warn('Failed to send intro message in ticket channel:', err);
+  }
+
+  // Persist ticket channel mapping (optional: file that your system uses)
+  try {
+    // if you track open tickets in memory, add an entry. Adjust to your existing shape.
+    openTickets = openTickets || {};
+    openTickets[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId, createdAt: Date.now() };
+    // if you have a function to persist, call it here (e.g., writeTicketState or save function)
+    if (typeof writeTicketState === 'function') {
+      // keep previous posted list semantics if needed
+      const state = readTicketState ? readTicketState() : {};
+      state.open = state.open || {};
+      state.open[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId };
+      try { writeTicketState(state); } catch (e) {}
+    }
+  } catch (e) {}
+
+  // reply to clicker with link & mention (ephemeral)
+  await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}> — staff will respond shortly.`, flags: 64 }).catch(()=>{});
+  return;
+}
+
+if (kind === 'staffapp') {
+  // optional: staff application buttons; implement if your SAVED_TICKETS use staffapp
+  // For now, acknowledge the click so user sees a response
+  await interaction.reply({ content: '✅ Staff application button clicked. Staff will be notified.', flags: 64 }).catch(()=>{});
+  return;
+}
+
         } catch (err) {
           console.error('Ticket button error:', err);
           if (!interaction.replied) interaction.reply({ content: '❌ Ticket button failed.', flags: 64 }).catch(()=>{});
@@ -2822,3 +2934,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
