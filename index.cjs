@@ -250,7 +250,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [Partials.Channel]
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
 });
 
 // ✅ Make this global so command handler can access it
@@ -2609,7 +2609,7 @@ if (!option && !Number.isNaN(Number(optionIdRaw))) {
   const idx = Number(optionIdRaw);
   if (idx >= 0 && idx < buttons.length) option = (typeof buttons[idx] === 'object') ? buttons[idx] : { id: idx, label: buttons[idx] };
 }
-const optionRaw = option ? (option.id || option.label || optionRaw) : optionIdRaw;
+const optionRaw = option ? (option.id || option.label) : optionIdRaw;
 
 // collect answers from modal fields (non-destructive best-effort)
 const answers = [];
@@ -2730,7 +2730,8 @@ try {
         try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch(e){}
         return;
       }
-    } // end modal handling
+    }
+  }  // end modal handling
 
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
@@ -3021,57 +3022,6 @@ if (kind === 'staffapp') {
   }
 }); // end client.on('interactionCreate')
 
-// -------------------- Global Giveaway Edit Modal Handler --------------------
-// client.on('interactionCreate', async interaction => {
-//   if (!interaction.isModalSubmit()) return;
-//   if (!interaction.customId.startsWith('gw_setup_edit_modal_')) return;
-
-//   try {
-//     const [, , setupMsgId] = interaction.customId.split('_');
-
-//     const newPrize = interaction.fields.getTextInputValue('edit_prize');
-//     const newDurationRaw = interaction.fields.getTextInputValue('edit_duration');
-//     const newWinnersRaw = interaction.fields.getTextInputValue('edit_winners');
-
-//     const durationMatch = newDurationRaw.match(/^(\d+)([dhms])$/i);
-//     if (!durationMatch)
-//       return interaction.reply({ content: '⚠️ Invalid duration. Use 1d / 2h / 30m / 45s.', flags: 64 });
-
-//     const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-//     const newDurationMs = parseInt(durationMatch[1]) * unitMs[durationMatch[2].toLowerCase()];
-
-//     const newWinners = parseInt(newWinnersRaw);
-//     if (isNaN(newWinners) || newWinners < 1)
-//       return interaction.reply({ content: '⚠️ Winners must be a number ≥ 1.', flags: 64 });
-
-//     // Store updated setup data per message
-//     if (!global.tempGiveawaySetup) global.tempGiveawaySetup = {};
-//     global.tempGiveawaySetup[setupMsgId] = {
-//       prize: newPrize,
-//       durationRaw: newDurationRaw,
-//       durationMs: newDurationMs,
-//       winnersCount: newWinners,
-//       hostId: interaction.user.id,
-//     };
-
-//     // 🟢 Try updating the original setup preview
-//     const setupMsg = await interaction.channel.messages.fetch(setupMsgId).catch(() => null);
-//     if (setupMsg) {
-//       const embed = EmbedBuilder.from(setupMsg.embeds[0])
-//         .setDescription(`**Prize:** ${newPrize}\n**Winners:** ${newWinners}\n**Duration:** ${newDurationRaw}`)
-//         .setFooter({ text: `Host: ${interaction.user.tag}` })
-//         .setColor(0x2b6cb0);
-//       await setupMsg.edit({ embeds: [embed] }).catch(() => {});
-//     }
-
-//     await interaction.reply({ content: '✅ Giveaway setup updated successfully.', flags: 64 });
-//   } catch (err) {
-//     console.error('❌ Modal submission failed:', err);
-//     if (!interaction.replied)
-//       await interaction.reply({ content: '❌ Failed to update giveaway.', flags: 64 }).catch(() => {});
-//   }
-// });
-
       // -------------------- Auto-role on member join --------------------
       const AUTO_ROLE_ID = '1424213161262841857';
 
@@ -3159,4 +3109,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
