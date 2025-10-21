@@ -61,21 +61,6 @@ try {
   if (!fs.existsSync(TICKET_STATE_FILE)) fs.writeFileSync(TICKET_STATE_FILE, JSON.stringify({ posted: [] }, null, 2));
 } catch (err) { console.error('Failed ensure ticket storage:', err); }
 
-// Runtime ticket state (in-memory) — initialize from persisted file if reader exists
-let openTickets = {};
-try {
-  if (typeof readTicketState === 'function') {
-    const st = readTicketState() || {};
-    openTickets = st.open || {};
-  } else {
-    // Fallback: keep empty object, will be written when tickets open
-    openTickets = {};
-  }
-} catch (e) {
-  console.warn('Failed to initialize openTickets from state:', e?.message || e);
-  openTickets = {};
-}
-
 // ---------- Ticket runtime state (persistent) ----------
 const _ticketStateStartup = (typeof readTicketState === 'function') ? readTicketState() : {};
 let postedTicketMenus = Array.isArray(_ticketStateStartup.posted) ? _ticketStateStartup.posted : [];
@@ -3174,3 +3159,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
