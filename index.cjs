@@ -2557,246 +2557,513 @@ const formatted = entries
 // ---------- Unified interaction handler (modal + buttons + tickets) ----------
 client.on('interactionCreate', async (interaction) => {
   try {
-    // ----- 1) Modal submissions -----
+    // ---------------- 1) Modal submissions ----------------
     if (typeof interaction.isModalSubmit === 'function' && interaction.isModalSubmit()) {
-
-      // --- Remove warning modal ---
-      if (interaction.customId && interaction.customId.startsWith('removeWarnModal_')) {
-        try {
-          const [, uid, indexStr] = interaction.customId.split('_');
-          const index = parseInt(indexStr, 10);
-          const reason = interaction.fields.getTextInputValue('removeReason');
-          const userWarns = warnings[uid] || [];
-          if (isNaN(index) || index < 0 || index >= userWarns.length) {
-            return interaction.reply({ content: '❌ Warning not found.', flags: 64 });
-          }
-          userWarns.splice(index, 1);
-          await saveWarnings().catch(() => {});
+      try {
+        // --- Remove warning modal ---
+        if (interaction.customId && interaction.customId.startsWith('removeWarnModal_')) {
           try {
-            const member = interaction.guild ? await interaction.guild.members.fetch(uid).catch(() => null) : null;
-            if (member) {
-              await member.send({
-                embeds: [
-                  new EmbedBuilder()
-                    .setTitle('⚠️ Warning Removed')
-                    .setColor(0x2b6cb0)
-                    .setDescription(`A warning was removed by staff.\n\n**Reason:** ${reason}`)
-                    .setTimestamp(),
-                ],
-              }).catch(() => {});
+            const [, uid, indexStr] = interaction.customId.split('_');
+            const index = parseInt(indexStr, 10);
+            const reason = (typeof interaction.fields?.getTextInputValue === 'function') ? (interaction.fields.getTextInputValue('removeReason') || 'No reason') : 'No reason';
+            const userWarns = warnings[uid] || [];
+            if (isNaN(index) || index < 0 || index >= userWarns.length) {
+              return interaction.reply({ content: '❌ Warning not found.', flags: 64 });
             }
-          } catch (e) {}
-          return interaction.reply({ content: '✅ Warning removed and records updated.', flags: 64 });
-        } catch (err) {
-          console.error('Error handling removeWarnModal:', err);
-          return interaction.reply({ content: '❌ Failed to process modal submission.', flags: 64 });
-        }
-      }
+            userWarns.splice(index, 1);
+            try { await saveWarnings(); } catch (e) { console.warn('saveWarnings failed:', e?.message || e); }
 
-      // ---------- Ticket system modal handling ----------
-      if (interaction.customId && interaction.customId.startsWith('ticket_modal:')) {
-        try {
-          // move the full “MODAL SUBMIT” logic here (shortened for clarity)
-          // to avoid wall of text, use the ticket modal handler from Step 4
-          // It begins with:
-          //   const [prefix, menuIdRaw, optionId, userId] = interaction.customId.split(':');
-          // and ends before the staffapp button block.
-          // ⚠️ Paste the long modal handler block from Step 4 here exactly as given.
-        } catch (err) {
-          console.error('Ticket modal error:', err);
-          return interaction.reply({ content: '❌ Failed to handle ticket form.', flags: 64 });
-        }
-      }
-    }
+            try {
+              const member = interaction.guild ? await interaction.guild.members.fetch(uid).catch(() => null) : null;
+              if (member) {
+                await member.send({
+                  embeds: [
+                    new EmbedBuilder()
+                      .setTitle('⚠️ Warning Removed')
+                      .setColor(0x2b6cb0)
+                      .setDescription(`A warning was removed by staff.\n\n**Reason:** ${reason}`)
+                      .setTimestamp(),
+                  ],
+                }).catch(() => {});
+              }
+            } catch (e) { console.warn('DM failed on removeWarnModal:', e?.message || e); }
 
-    // ----- 2) Button interactions -----
+            return interaction.reply({ content: '✅ Warning removed and records updated.', flags: 64 });
+          } catch (err) {
+            console.error('Error handling removeWarnModal:', err);
+            try { if (!interaction.replied) await interaction.reply({ content: '❌ Failed to process modal submission.', flags: 64 }); } catch(e){}
+            return;
+          }
+        }
+
+        // --- Ticket modal submission handler ---
+        if (interaction.customId && interaction.customId.startsWith('ticket_modal:')) {
+          try {
+            // Format: ticket_modal:<menuId>:<optionId>[:<targetUserId>]   (optionId may contain ':')
+            const parts = String(interaction.customId || '').split(':');
+            // parts[0] === 'ticket_modal'
+            const menuIdRaw = parts[1];
+            const optionRaw = parts.slice(2).join(':'); // preserves ':' in option id
+            const menuId = isNaN(Number(menuIdRaw)) ? menuIdRaw : Number(menuIdRaw);
+            const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId || String(t.id) === String(menuId));
+            if (!ticketDef) {
+              try { if (!interaction.replied) await interaction.reply({ content: '⚠️ Ticket definition not found.', flags: 64 }); } catch(e){}
+              return;
+            }
+
+            // Resolve option (same logic as button)
+            let option = null;
+            const buttons = ticketDef.buttons || [];
+            const optCandidate = optionRaw || '';
+            if (optCandidate) {
+              option = buttons.find(b => {
+                if (typeof b === 'object' && b.id !== undefined) return String(b.id) === String(optCandidate);
+                if (typeof b === 'string') return String(b) === String(optCandidate);
+                return false;
+              });
+              if (!option && !Number.isNaN(Number(optCandidate))) {
+                const idx = Number(optCandidate);
+                if (idx >= 0 && idx < buttons.length) option = (typeof buttons[idx] === 'object') ? buttons[idx] : { id: idx, label: buttons[idx] };
+              }
+            }
+            if (!option) {
+              try { if (!interaction.replied) await interaction.reply({ content: '⚠️ Ticket option not found. Please reopen the menu and try again.', flags: 64 }); } catch(e){}
+              return;
+            }
+
+            // collect answers from modal fields. We expect ticketDef.questions array to indicate number/labels
+            const questions = Array.isArray(ticketDef.questions) ? ticketDef.questions : [];
+            const answers = [];
+            for (let i = 0; i < questions.length; i++) {
+              // try several likely field ids (robust)
+              const candidateIds = [
+                `ticket_q_${menuId}_${option.id || optionRaw}_${i}`,
+                `ticket_q_${i}`,
+                `q_${i}`,
+                `q${i}`,
+                `${i}`
+              ];
+              let val = null;
+              for (const fid of candidateIds) {
+                try {
+                  if (typeof interaction.fields?.getTextInputValue === 'function') {
+                    try {
+                      const got = interaction.fields.getTextInputValue(fid);
+                      if (got !== undefined && got !== null) { val = String(got); break; }
+                    } catch (_) {}
+                  }
+                } catch (e) {}
+              }
+              answers.push(val || 'No response');
+            }
+
+            // Find existing channel for this user (if the modal included a target user id)
+            // Modal customId may optionally include a target user id as last part, but if not, use interaction.user
+            const potentialTargetUserId = parts.length >= 4 ? parts.slice(3).join(':') : interaction.user.id;
+            const targetUserId = potentialTargetUserId || interaction.user.id;
+
+            // See if an open ticket already exists for this user
+            let ticketChannelId = null;
+            try {
+              for (const cid of Object.keys(openTickets || {})) {
+                const rec = openTickets[cid];
+                if (rec && String(rec.userId) === String(targetUserId)) { ticketChannelId = cid; break; }
+              }
+            } catch (e) { console.warn('openTickets scan failed:', e?.message || e); }
+
+            const g = interaction.guild;
+            if (!g) {
+              try { if (!interaction.replied) await interaction.reply({ content: '❌ Must be used inside a server.', flags: 64 }); } catch(e){}
+              return;
+            }
+
+            // determine parent category id like in button handler
+            let parentId;
+            try {
+              const optStr = String(option.id || optionRaw || '').toLowerCase();
+              if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
+              else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
+              else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
+              else parentId = TICKET_REFERENCES?.categories?.support;
+            } catch (e) { parentId = TICKET_REFERENCES?.categories?.support; }
+            if (parentId) parentId = String(parentId);
+
+            // If channel exists, fetch it; otherwise create channel and persist openTickets
+            let ticketChannel = null;
+            if (ticketChannelId) {
+              try {
+                ticketChannel = await g.channels.fetch(ticketChannelId).catch(() => null);
+              } catch (e) { ticketChannel = null; }
+            }
+
+            if (!ticketChannel) {
+              // create new ticket channel
+              const sanitized = (`${interaction.user.username || 'user'}`).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
+              const channelName = `ticket-${sanitized}-${menuId}`;
+
+              // permission overwrites
+              const overwrites = [
+                { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+                { id: targetUserId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+              ];
+              if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
+                overwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+              }
+
+              const createOpts = { name: channelName, type: ChannelType.GuildText, permissionOverwrites: overwrites };
+              if (parentId) createOpts.parent = parentId;
+
+              // check permission to create channels
+              const botMember = g.members.me || (await g.members.fetch(interaction.client.user.id).catch(()=>null));
+              if (botMember && !botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+                try { if (!interaction.replied) await interaction.reply({ content: '❌ I need Manage Channels permission to create ticket channels. Please contact admins.', flags: 64 }); } catch(e){}
+                return;
+              }
+
+              try {
+                ticketChannel = await g.channels.create(createOpts);
+              } catch (err) {
+                console.error('Ticket modal: failed to create channel:', err);
+                try { if (!interaction.replied) await interaction.reply({ content: '❌ Failed to create ticket channel. Check permissions.', flags: 64 }); } catch(e){}
+                return;
+              }
+
+              // persist openTickets
+              try {
+                openTickets = openTickets || {};
+                openTickets[ticketChannel.id] = { userId: targetUserId, menuId, optionId: option.id || optionRaw, createdAt: Date.now(), channelId: ticketChannel.id };
+                if (typeof writeTicketState === 'function') {
+                  const state = readTicketState ? readTicketState() : {};
+                  state.open = state.open || {};
+                  state.open[ticketChannel.id] = openTickets[ticketChannel.id];
+                  writeTicketState(state);
+                } else {
+                  try { persistTicketStateFull(); } catch(e) {}
+                }
+              } catch (e) { console.warn('persist open ticket failed:', e?.message || e); }
+            }
+
+            // post intro and answers in the ticket channel
+            try {
+              const introEmbed = new EmbedBuilder()
+                .setTitle(`🎫 Ticket — ${ticketDef.name || 'Ticket'}`)
+                .setDescription(option.openMessage || `Ticket opened for <@${targetUserId}> — Option: ${option.label || option.id || optionRaw}`)
+                .addFields(
+                  { name: 'User', value: `<@${targetUserId}>`, inline: true },
+                  { name: 'Option', value: option.label ? String(option.label) : String(option.id || optionRaw), inline: true }
+                )
+                .setTimestamp();
+
+              await ticketChannel.send({ content: `<@${targetUserId}>`, embeds: [introEmbed] }).catch(()=>{});
+
+              if (answers.length) {
+                const qEmbed = new EmbedBuilder().setTitle('Ticket Form Responses').setTimestamp();
+                for (let i = 0; i < questions.length; i++) {
+                  const qLabel = (typeof questions[i] === 'object' && questions[i].label) ? questions[i].label : String(questions[i] || `Question ${i+1}`);
+                  qEmbed.addFields({ name: qLabel.slice(0, 256), value: (answers[i] || 'No response').slice(0, 1024) });
+                }
+                await ticketChannel.send({ embeds: [qEmbed] }).catch(()=>{});
+              }
+
+              try { if (!interaction.replied) await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }); } catch(e){}
+            } catch (e) {
+              console.warn('Ticket modal: failed to send messages in ticket channel:', e?.message || e);
+              try { if (!interaction.replied) await interaction.reply({ content: '✅ Ticket created but failed to send messages in the channel.', flags: 64 }); } catch(e){}
+            }
+            return;
+          } catch (err) {
+            console.error('Ticket modal handler failed:', err);
+            try { if (!interaction.replied) await interaction.reply({ content: '❌ Error processing ticket form.', flags: 64 }); } catch(e){}
+            return;
+          }
+        }
+
+        // If no known modal handler matched, ack
+        try { if (!interaction.replied) await interaction.reply({ content: 'ℹ️ Modal received.', flags: 64 }); } catch(e){}
+        return;
+      } catch (err) {
+        console.error('Modal dispatch error:', err);
+        try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch(e){}
+        return;
+      }
+    } // end modal handling
+
+    // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
     if (isButton && interaction.customId) {
-      const customId = interaction.customId;
-
-      // ---------- Ticket system buttons ----------
-      if (customId.startsWith('ticket_list:') || customId.startsWith('ticket_menu:') || customId.startsWith('staffapp:')) {
-        try {
-// ---------- Ticket button logic (updated, robust) ----------
-console.log('Ticket button clicked:', interaction.customId, 'by', interaction.user.id);
-
-const [kind, ...rest] = String(interaction.customId || '').split(':');
-
-if (kind === 'ticket_list') {
-  const menuIdRaw = rest[0];
-  const menuId = isNaN(Number(menuIdRaw)) ? menuIdRaw : Number(menuIdRaw);
-  const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId || String(t.id) === String(menuId));
-  if (!ticketDef) return interaction.reply({ content: `⚠️ Ticket menu ${menuIdRaw} not found.`, flags: 64 });
-
-  const rows = [];
-  const buttonsArray = ticketDef.buttons || [];
-  for (let i = 0; i < buttonsArray.length; i += 5) {
-    const slice = buttonsArray.slice(i, i + 5);
-    const row = new ActionRowBuilder();
-    slice.forEach(btn => {
-      const btnId = (typeof btn === 'object' && btn.id !== undefined) ? btn.id : (typeof btn === 'string' ? String(btn) : String(i + slice.indexOf(btn)));
-      const label = (typeof btn === 'object') ? (btn.label || String(btnId)) : String(btn);
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`ticket_menu:${ticketDef.id}:${btnId}`)
-          .setLabel(label.slice(0, 80))
-          .setStyle(ButtonStyle.Primary)
-      );
-    });
-    rows.push(row);
-  }
-
-  return interaction.reply({
-    embeds: [new EmbedBuilder().setTitle(ticketDef.name || 'Ticket Menu').setDescription(ticketDef.description || '').setTimestamp()],
-    components: rows,
-    flags: 64
-  }).catch(err => { console.warn('ticket_list reply failed:', err?.message || err); });
-}
-
-if (kind === 'ticket_menu') {
-  // join the remainder to preserve option IDs containing ':'
-  const menuIdRaw = rest[0];
-  const optionRaw = rest.slice(1).join(':');
-  const menuId = isNaN(Number(menuIdRaw)) ? menuIdRaw : Number(menuIdRaw);
-
-  const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId || String(t.id) === String(menuId));
-  if (!ticketDef) {
-    console.warn('ticket_menu click: ticketDef not found for menuId=', menuIdRaw, 'customId=', interaction.customId);
-    return interaction.reply({ content: `⚠️ Ticket definition not found for id \`${menuIdRaw}\`. Contact an admin.`, flags: 64 });
-  }
-
-  // Resolve option by id (string), index, or label
-  let option = null;
-  const buttons = ticketDef.buttons || [];
-
-  if (optionRaw) {
-    option = buttons.find(b => {
-      if (typeof b === 'object' && b.id !== undefined) return String(b.id) === String(optionRaw);
-      if (typeof b === 'string') return String(b) === String(optionRaw);
-      return false;
-    });
-    if (!option && !Number.isNaN(Number(optionRaw))) {
-      const idx = Number(optionRaw);
-      if (idx >= 0 && idx < buttons.length) option = (typeof buttons[idx] === 'object') ? buttons[idx] : { id: idx, label: buttons[idx] };
-    }
-  }
-
-  // fallback: try matching by clicked button label (best-effort)
-  if (!option && interaction.message && Array.isArray(interaction.message.components)) {
-    try {
-      for (const row of interaction.message.components) {
-        for (const comp of row.components) {
-          if (comp.type === 2 && comp.customId === interaction.customId) {
-            const clickedLabel = comp.label || null;
-            if (clickedLabel) {
-              option = buttons.find(b => (typeof b === 'object' ? (b.label === clickedLabel || String(b.id) === clickedLabel) : String(b) === clickedLabel));
-            }
-          }
-        }
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  if (!option) {
-    console.warn('ticket_menu click: option not found', { menuIdRaw, optionRaw, customId: interaction.customId, savedButtons: buttons });
-    const fallbackRows = [];
-    for (let i = 0; i < buttons.length; i += 5) {
-      const slice = buttons.slice(i, i + 5);
-      const row = new ActionRowBuilder();
-      slice.forEach((b, idx) => {
-        const btnId = (typeof b === 'object' && b.id !== undefined) ? b.id : (typeof b === 'string' ? b : i + idx);
-        const label = (typeof b === 'object') ? (b.label || String(btnId)) : String(b);
-        row.addComponents(new ButtonBuilder().setCustomId(`ticket_menu:${ticketDef.id}:${btnId}`).setLabel(label.slice(0,80)).setStyle(ButtonStyle.Primary));
-      });
-      fallbackRows.push(row);
-    }
-    return interaction.reply({ content: '⚠️ Ticket option not found — please choose from the list below.', components: fallbackRows, flags: 64 }).catch(err => {
-      console.warn('Failed to send fallback ticket options:', err?.message || err);
-    });
-  }
-
-  // --- We have a resolved option. Now create the ticket channel in the correct category ---
-  const g = interaction.guild;
-  if (!g) return interaction.reply({ content: '❌ Tickets must be created inside a server.', flags: 64 });
-
-  // Determine parent (category) ID:
-  let parentId;
-  try {
-    const optStr = String(option.id || optionRaw || '').toLowerCase();
-    if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
-    else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
-    else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
-    else parentId = TICKET_REFERENCES?.categories?.support;
-  } catch (e) {
-    parentId = TICKET_REFERENCES?.categories?.support;
-  }
-
-  // Ensure parentId is a string or undefined
-  if (parentId) parentId = String(parentId);
-
-  // permission check: bot must be able to create channels
-  const botMember = g.members.me || (await g.members.fetch(interaction.client.user.id).catch(()=>null));
-  if (botMember && !botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-    return interaction.reply({ content: '❌ I need the Manage Channels permission to create ticket channels. Please grant it and try again.', flags: 64 });
-  }
-
-  try {
-    const sanitized = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
-    const channelName = `ticket-${sanitized}-${menuId}`;
-
-    const permissionOverwrites = [
-      { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-      { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-    ];
-    if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
-      permissionOverwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
-    }
-
-    const createOpts = {
-      name: channelName,
-      type: ChannelType.GuildText,
-      permissionOverwrites
-    };
-    if (parentId) createOpts.parent = parentId;
-
-    const ticketChannel = await g.channels.create(createOpts);
-
-    const introEmbed = new EmbedBuilder()
-      .setTitle(`🎫 Ticket — ${ticketDef.name || 'Ticket'}`)
-      .setDescription((option.openMessage || `Ticket opened for ${interaction.user.tag}\n\nOption: ${option.label || option.id || optionRaw}`))
-      .addFields(
-        { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
-        { name: 'Option', value: option.label ? String(option.label) : String(option.id || optionRaw), inline: true }
-      ).setTimestamp();
-
-    await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [introEmbed] }).catch(()=>{});
-
-    // persist open ticket
-    openTickets = openTickets || {};
-    openTickets[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw, createdAt: Date.now(), channelId: ticketChannel.id };
-    // persist to disk via state write (keep existing state structure consistent)
-    if (typeof writeTicketState === 'function') {
       try {
-        const state = readTicketState ? readTicketState() : {};
-        state.open = state.open || {};
-        state.open[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw, createdAt: Date.now(), channelId: ticketChannel.id };
-        writeTicketState(state);
-      } catch (e) { console.warn('writeTicketState failed:', e?.message || e); }
-    } else {
-      // fallback using our runtime persist helper
-      persistTicketStateFull();
+        const customId = String(interaction.customId || '');
+
+        // ----- Giveaways buttons (examples) -----
+        if (customId === 'gw_join') {
+          try {
+            const msg = interaction.message;
+            if (!msg) return interaction.reply({ content: '⚠️ Message not found.', flags: 64 });
+            const gw = giveaways[msg.id];
+            if (!gw || !gw.active) return interaction.reply({ content: '⚠️ Giveaway not active.', flags: 64 });
+            if (giveawayBans[interaction.user.id]) return interaction.reply({ content: '🚫 You are banned from giveaways.', flags: 64 });
+            if (!gw.participants.includes(interaction.user.id)) {
+              if (giveawayLocks.has(msg.id)) return interaction.reply({ content: '⏳ Processing — try again shortly.', flags: 64 });
+              giveawayLocks.add(msg.id);
+              try {
+                gw.participants.push(interaction.user.id);
+                try { saveGiveaways(); } catch(e){}
+                try { await updateGiveawayEmbed(msg.id); } catch(e){}
+                return interaction.reply({ content: `🎉 You entered **${gw.prize}**!`, flags: 64 });
+              } finally {
+                giveawayLocks.delete(msg.id);
+              }
+            } else {
+              return interaction.reply({ content: '⚠️ You are already entered.', flags: 64 });
+            }
+          } catch (e) {
+            console.error('gw_join failed:', e);
+            try { if (!interaction.replied) await interaction.reply({ content: '❌ Failed to join giveaway.', flags: 64 }); } catch(e){}
+          }
+          return;
+        }
+
+        // gw_leave_xxx pattern
+        if (customId.startsWith('gw_leave_')) {
+          try {
+            const msgId = customId.split('_').slice(2).join('_');
+            const gw = giveaways[msgId];
+            if (!gw) return interaction.reply({ content: '❌ Giveaway not found.', flags: 64 });
+            if (giveawayLocks.has(msgId)) return interaction.reply({ content: '⏳ Processing — try again shortly.', flags: 64 });
+            giveawayLocks.add(msgId);
+            try {
+              const idx = gw.participants.indexOf(interaction.user.id);
+              if (idx === -1) return interaction.reply({ content: '⚠️ You are not entered in this giveaway.', flags: 64 });
+              gw.participants.splice(idx, 1);
+              try { saveGiveaways(); } catch(e){}
+              try { await updateGiveawayEmbed(msgId); } catch(e){}
+              return interaction.reply({ content: `🗑️ You have left the giveaway **${gw.prize}**.`, flags: 64 });
+            } finally {
+              giveawayLocks.delete(msgId);
+            }
+          } catch (e) {
+            console.error('gw_leave failed:', e);
+            try { if (!interaction.replied) await interaction.reply({ content: '❌ Failed to leave giveaway.', flags: 64 }); } catch(e){}
+          }
+          return;
+        }
+
+        // gw_participants
+        if (customId === 'gw_participants') {
+          try {
+            const msg = interaction.message;
+            if (!msg) return interaction.reply({ content: '⚠️ Message not found.', flags: 64 });
+            const gw = giveaways[msg.id];
+            if (!gw) return interaction.reply({ content: '❌ Giveaway not found.', flags: 64 });
+            const mentions = (gw.participants || []).slice(0, 200).map(id => `<@${id}>`).join(', ') || 'No participants yet.';
+            return interaction.reply({ content: `👥 Participants: ${mentions}`, flags: 64 });
+          } catch (e) {
+            console.error('gw_participants failed:', e);
+            try { if (!interaction.replied) await interaction.reply({ content: '❌ Failed to get participants.', flags: 64 }); } catch(e){}
+          }
+          return;
+        }
+
+        // ---------- Ticket buttons (ticket_list, ticket_menu, staffapp) ----------
+        if (customId.startsWith('ticket_list:') || customId.startsWith('ticket_menu:') || customId.startsWith('staffapp:')) {
+          try {
+            // copy of the robust ticket button logic
+            console.log('Ticket button clicked:', interaction.customId, 'by', interaction.user.id);
+            const [kind, ...rest] = String(interaction.customId || '').split(':');
+
+            if (kind === 'ticket_list') {
+              const menuIdRaw = rest[0];
+              const menuId = isNaN(Number(menuIdRaw)) ? menuIdRaw : Number(menuIdRaw);
+              const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId || String(t.id) === String(menuId));
+              if (!ticketDef) return interaction.reply({ content: `⚠️ Ticket menu ${menuIdRaw} not found.`, flags: 64 });
+
+              const rows = [];
+              const buttonsArray = ticketDef.buttons || [];
+              for (let i = 0; i < buttonsArray.length; i += 5) {
+                const slice = buttonsArray.slice(i, i + 5);
+                const row = new ActionRowBuilder();
+                slice.forEach(btn => {
+                  const btnId = (typeof btn === 'object' && btn.id !== undefined) ? btn.id : (typeof btn === 'string' ? String(btn) : String(i + slice.indexOf(btn)));
+                  const label = (typeof btn === 'object') ? (btn.label || String(btnId)) : String(btn);
+                  row.addComponents(
+                    new ButtonBuilder()
+                      .setCustomId(`ticket_menu:${ticketDef.id}:${btnId}`)
+                      .setLabel(label.slice(0, 80))
+                      .setStyle(ButtonStyle.Primary)
+                  );
+                });
+                rows.push(row);
+              }
+
+              return interaction.reply({
+                embeds: [new EmbedBuilder().setTitle(ticketDef.name || 'Ticket Menu').setDescription(ticketDef.description || '').setTimestamp()],
+                components: rows,
+                flags: 64
+              }).catch(err => { console.warn('ticket_list reply failed:', err?.message || err); });
+            }
+
+            if (kind === 'ticket_menu') {
+              const menuIdRaw = rest[0];
+              const optionRaw = rest.slice(1).join(':');
+              const menuId = isNaN(Number(menuIdRaw)) ? menuIdRaw : Number(menuIdRaw);
+              const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId || String(t.id) === String(menuId));
+              if (!ticketDef) {
+                console.warn('ticket_menu click: ticketDef not found for menuId=', menuIdRaw, 'customId=', interaction.customId);
+                return interaction.reply({ content: `⚠️ Ticket definition not found for id \`${menuIdRaw}\`. Contact an admin.`, flags: 64 });
+              }
+
+              // resolve option
+              let option = null;
+              const buttons = ticketDef.buttons || [];
+              if (optionRaw) {
+                option = buttons.find(b => {
+                  if (typeof b === 'object' && b.id !== undefined) return String(b.id) === String(optionRaw);
+                  if (typeof b === 'string') return String(b) === String(optionRaw);
+                  return false;
+                });
+                if (!option && !Number.isNaN(Number(optionRaw))) {
+                  const idx = Number(optionRaw);
+                  if (idx >= 0 && idx < buttons.length) option = (typeof buttons[idx] === 'object') ? buttons[idx] : { id: idx, label: buttons[idx] };
+                }
+              }
+
+              if (!option) {
+                console.warn('ticket_menu click: option not found', { menuIdRaw, optionRaw, customId: interaction.customId, savedButtons: buttons });
+                const fallbackRows = [];
+                for (let i = 0; i < buttons.length; i += 5) {
+                  const slice = buttons.slice(i, i + 5);
+                  const row = new ActionRowBuilder();
+                  slice.forEach((b, idx) => {
+                    const btnId = (typeof b === 'object' && b.id !== undefined) ? b.id : (typeof b === 'string' ? b : i + idx);
+                    const label = (typeof b === 'object') ? (b.label || String(btnId)) : String(b);
+                    row.addComponents(new ButtonBuilder().setCustomId(`ticket_menu:${ticketDef.id}:${btnId}`).setLabel(label.slice(0,80)).setStyle(ButtonStyle.Primary));
+                  });
+                  fallbackRows.push(row);
+                }
+                return interaction.reply({ content: '⚠️ Ticket option not found — please choose from the list below.', components: fallbackRows, flags: 64 }).catch(err => {
+                  console.warn('Failed to send fallback ticket options:', err?.message || err);
+                });
+              }
+
+              // create ticket channel
+              const g = interaction.guild;
+              if (!g) return interaction.reply({ content: '❌ Tickets must be created inside a server.', flags: 64 });
+
+              // determine parent by option id keywords
+              let parentId;
+              try {
+                const optStr = String(option.id || optionRaw || '').toLowerCase();
+                if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
+                else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
+                else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
+                else parentId = TICKET_REFERENCES?.categories?.support;
+              } catch(e) { parentId = TICKET_REFERENCES?.categories?.support; }
+              if (parentId) parentId = String(parentId);
+
+              const botMember = g.members.me || (await g.members.fetch(interaction.client.user.id).catch(()=>null));
+              if (botMember && !botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+                return interaction.reply({ content: '❌ I need the Manage Channels permission to create ticket channels. Please grant it and try again.', flags: 64 });
+              }
+
+              try {
+                const sanitized = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
+                const channelName = `ticket-${sanitized}-${menuId}`;
+
+                const overwrites = [
+                  { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+                  { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+                ];
+                if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
+                  overwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+                }
+
+                const createOpts = {
+                  name: channelName,
+                  type: ChannelType.GuildText,
+                  permissionOverwrites: overwrites
+                };
+                if (parentId) createOpts.parent = parentId;
+
+                const ticketChannel = await g.channels.create(createOpts);
+
+                const introEmbed = new EmbedBuilder()
+                  .setTitle(`🎫 Ticket — ${ticketDef.name || 'Ticket'}`)
+                  .setDescription((option.openMessage || `Ticket opened for ${interaction.user.tag}\n\nOption: ${option.label || option.id || optionRaw}`))
+                  .addFields(
+                    { name: 'User', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Option', value: option.label ? String(option.label) : String(option.id || optionRaw), inline: true }
+                  ).setTimestamp();
+
+                await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [introEmbed] }).catch(()=>{});
+
+                // persist open ticket
+                openTickets = openTickets || {};
+                openTickets[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw, createdAt: Date.now(), channelId: ticketChannel.id };
+                if (typeof writeTicketState === 'function') {
+                  try {
+                    const state = readTicketState ? readTicketState() : {};
+                    state.open = state.open || {};
+                    state.open[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw, createdAt: Date.now(), channelId: ticketChannel.id };
+                    writeTicketState(state);
+                  } catch (e) { console.warn('writeTicketState failed:', e?.message || e); }
+                } else {
+                  try { persistTicketStateFull(); } catch(e) {}
+                }
+
+                return interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
+              } catch (err) {
+                console.error('Error creating ticket channel:', err);
+                return interaction.reply({ content: '❌ Failed to create ticket channel. Check bot permissions and category config.', flags: 64 });
+              }
+            } // end kind === 'ticket_menu'
+
+            if (kind === 'staffapp') {
+              await interaction.reply({ content: '✅ Staff application clicked — staff will be notified.', flags: 64 }).catch(()=>{});
+            }
+          } catch (err) {
+            console.error('Ticket button error:', err);
+            try { if (!interaction.replied) await interaction.reply({ content: '❌ Ticket button failed.', flags: 64 }); } catch(e){}
+          }
+          return;
+        } // end ticket buttons
+      } catch (err) {
+        console.error('Button dispatch error:', err);
+        try { if (!interaction.replied) await interaction.reply({ content: '❌ Button handling failed.', flags: 64 }); } catch(e){}
+      }
+      return;
+    } // end isButton
+
+    // ---------------- 3) SelectMenu interactions ----------------
+    const isSelect = (typeof interaction.isStringSelectMenu === 'function') ? interaction.isStringSelectMenu() : interaction.isStringSelectMenu;
+    if (isSelect) {
+      try {
+        // help-category select
+        if (interaction.customId === 'help-category') {
+          const chosen = Array.isArray(interaction.values) ? interaction.values[0] : null;
+          if (!chosen) return interaction.reply({ content: '⚠️ No category chosen.', flags: 64 });
+          // build embed for the chosen category from HELP_CATEGORIES or SAVED_HELP data if you have it
+          const helpEmbed = new EmbedBuilder()
+            .setTitle(`Help — ${chosen}`)
+            .setDescription(`Showing help for **${chosen}**. Use \`.help ${chosen}\` or check pinned messages.`)
+            .setTimestamp();
+          return interaction.reply({ embeds: [helpEmbed], flags: 64 });
+        }
+      } catch (err) {
+        console.error('Select handler error:', err);
+        try { if (!interaction.replied) await interaction.reply({ content: '❌ Select handling failed.', flags: 64 }); } catch(e){}
+      }
+      return;
     }
 
-    return interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
-  } catch (err) {
-    console.error('Error creating ticket channel:', err);
-    return interaction.reply({ content: '❌ Failed to create ticket channel. Check bot permissions and category config.', flags: 64 });
-  }
-}
+    // ---------------- 4) Fallback for other interaction types ----------------
+    // (e.g., context menu, autocomplete) – keep minimal safe defaults
+    // If you need to support more, add them above.
 
-if (kind === 'staffapp') {
-  await interaction.reply({ content: '✅ Staff application clicked — staff will be notified.', flags: 64 }).catch(()=>{});
-}
+  } catch (err) {
+    console.error('Unified interaction handler error:', err);
+    try { if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: '❌ An error occurred handling that action.', flags: 64 }); } catch(e){}
+  }
+}); // end client.on('interactionCreate')
 
       // ---------- Giveaway buttons (existing) ----------
       async function updateGiveawayEmbed(msgId) {
@@ -3036,3 +3303,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
