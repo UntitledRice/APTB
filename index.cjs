@@ -73,6 +73,26 @@ function writeTicketState(state) {
   } catch (e) { console.error('Failed write ticket state:', e); }
 }
 
+// ---------- Ticket runtime state (persistent) ----------
+const _ticketStateStartup = (typeof readTicketState === 'function') ? readTicketState() : {};
+let postedTicketMenus = Array.isArray(_ticketStateStartup.posted) ? _ticketStateStartup.posted : [];
+let openTickets = (_ticketStateStartup.open && typeof _ticketStateStartup.open === 'object') ? _ticketStateStartup.open : {};
+
+function persistTicketStateFull() {
+  try {
+    if (typeof writeTicketState === 'function') {
+      writeTicketState({ posted: postedTicketMenus, open: openTickets });
+    } else {
+      // if writeTicketState not found, fallback to your original save function
+      if (typeof saveTicketState === 'function') {
+        saveTicketState({ posted: postedTicketMenus, open: openTickets });
+      }
+    }
+  } catch (e) {
+    console.warn('persistTicketStateFull failed:', e?.message || e);
+  }
+}
+
 // Reference role/category IDs you requested (editable mapping)
 const TICKET_REFERENCES = {
   // categories
@@ -899,8 +919,11 @@ if (isCommand) {
 
     // Check if the message contains forbidden content (profanity, nudity, or links)
 if (!isCommand) {
-  if ((containsProfanity || containsNudity || containsLink) &&
-      !LINK_WHITELIST_CHANNELS.includes(message.channel.id)) {
+// allow if channel id or channel's parent (category id) is in the whitelist
+const channelParentId = message.channel && message.channel.parentId ? String(message.channel.parentId) : null;
+const isWhitelistedChannelOrCategory = LINK_WHITELIST_CHANNELS.includes(message.channel.id) || (channelParentId && LINK_WHITELIST_CHANNELS.includes(channelParentId));
+
+if ((containsProfanity || containsNudity || containsLink) && !isWhitelistedChannelOrCategory) {
 
       try {
         await message.delete().catch(() => {});
@@ -1074,7 +1097,7 @@ if (content.startsWith('.coinrig')) {
   return message.channel.send(`🎩 The next coin flip for <@${allowedUserId}> is rigged to **${choice.toUpperCase()}**.`);
 }
 
-    // ---------- .ticket command (owner only) ----------
+// ---------- .ticket command (owner only) — toggle poster in current channel ----------
 if (content.startsWith('.ticket')) {
   if (message.author.id !== OWNER_ID) return message.channel.send('❌ Only the owner can use this command.');
   const parts = contentRaw.split(/\s+/).slice(1);
@@ -1105,23 +1128,24 @@ if (content.startsWith('.ticket')) {
 
     const sent = await targetChannel.send({ embeds: [embed], components: rows });
     // persist posted message for restart cleanup/re-post
+    // read current state, remove any existing record for this channel & ticket id, then add
     const state = readTicketState();
-    // remove any existing record for this channel & ticket id
-    state.posted = state.posted.filter(p => !(p.channelId === targetChannel.id && p.ticketListId === ticketDef.id));
+    state.posted = (state.posted || []).filter(p => !(p.channelId === targetChannel.id && p.ticketListId === ticketDef.id));
     state.posted.push({ channelId: targetChannel.id, messageId: sent.id, ticketListId: ticketDef.id });
     writeTicketState(state);
+
+    // update in-memory cache as well
+    postedTicketMenus = state.posted || [];
     return sent;
   };
 
+  // If no number given -> show overview (unchanged behavior)
   if (!pick) {
-    // Post the combined list of all saved tickets (owner asked for overview)
-    // Build embed that lists available ticket menus with description and the number to use.
     const overview = new EmbedBuilder()
       .setTitle('Saved Tickets')
       .setDescription('Click one of the buttons below to start a ticket flow. Use `.ticket <#>` to post a specific menu.')
       .setTimestamp();
 
-    // Build a row of buttons for each SAVED_TICKETS entry (one button per ticket menu)
     const rows = [];
     for (let i = 0; i < SAVED_TICKETS.length; i += 5) {
       const slice = SAVED_TICKETS.slice(i, i+5);
@@ -1138,17 +1162,36 @@ if (content.startsWith('.ticket')) {
     }
 
     const sent = await message.channel.send({ embeds: [overview], components: rows });
-    // Persist overview message as well (owner may want to keep it)
     const state = readTicketState();
-    state.posted = state.posted.filter(p => !(p.channelId === message.channel.id && p.ticketListId === 0));
+    state.posted = (state.posted || []).filter(p => !(p.channelId === message.channel.id && p.ticketListId === 0));
     state.posted.push({ channelId: message.channel.id, messageId: sent.id, ticketListId: 0 });
     writeTicketState(state);
+    postedTicketMenus = state.posted || [];
     return;
   } else {
-    // owner requested .ticket 1 or .ticket 2 -> post that specific ticket list in current channel
+    // Post a specific menu or toggle it off if already posted in this channel
     const ticketDef = SAVED_TICKETS.find(t => t.id === pick);
     if (!ticketDef) return message.channel.send('⚠️ Unknown ticket number. Use `.ticket` to see available tickets.');
+
+    // read persisted state and check for existing same-menu entry for this channel
+    const state = readTicketState();
+    state.posted = state.posted || [];
+    const existing = state.posted.find(p => p.channelId === message.channel.id && p.ticketListId === ticketDef.id);
+    if (existing) {
+      // Toggle off: delete the message (best-effort) and remove from persisted posted list
+      try {
+        const ch = await client.channels.fetch(existing.channelId).catch(()=>null);
+        if (ch && existing.messageId) await ch.messages.delete(existing.messageId).catch(()=>{});
+      } catch (e) { /* ignore */ }
+      state.posted = state.posted.filter(p => !(p.channelId === message.channel.id && p.ticketListId === ticketDef.id));
+      writeTicketState(state);
+      postedTicketMenus = state.posted || [];
+      return message.channel.send('✅ Ticket menu removed from this channel (toggle off).');
+    }
+
+    // No existing menu -> post it (toggle on)
     await sendTicketMenu(ticketDef, message.channel);
+    postedTicketMenus = readTicketState().posted || [];
     return message.channel.send(`✅ Posted ticket menu: #${ticketDef.id} — ${ticketDef.name}`);
   }
 }
@@ -2574,7 +2617,7 @@ client.on('interactionCreate', async (interaction) => {
       // ---------- Ticket system buttons ----------
       if (customId.startsWith('ticket_list:') || customId.startsWith('ticket_menu:') || customId.startsWith('staffapp:')) {
         try {
-// ---------- Ticket button logic (replacement) ----------
+// ---------- Ticket button logic (updated, robust) ----------
 console.log('Ticket button clicked:', interaction.customId, 'by', interaction.user.id);
 
 const [kind, ...rest] = String(interaction.customId || '').split(':');
@@ -2611,9 +2654,9 @@ if (kind === 'ticket_list') {
 }
 
 if (kind === 'ticket_menu') {
-  // IMPORTANT: if the option id itself contains ':' we join the rest back together
+  // join the remainder to preserve option IDs containing ':'
   const menuIdRaw = rest[0];
-  const optionRaw = rest.slice(1).join(':'); // <--- handles 'support:general' style ids
+  const optionRaw = rest.slice(1).join(':');
   const menuId = isNaN(Number(menuIdRaw)) ? menuIdRaw : Number(menuIdRaw);
 
   const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId || String(t.id) === String(menuId));
@@ -2622,28 +2665,23 @@ if (kind === 'ticket_menu') {
     return interaction.reply({ content: `⚠️ Ticket definition not found for id \`${menuIdRaw}\`. Contact an admin.`, flags: 64 });
   }
 
-  // Resolve option robustly: by id (string), by index, or by matching label
+  // Resolve option by id (string), index, or label
   let option = null;
   const buttons = ticketDef.buttons || [];
 
-  // Try exact id match (supports string ids & numeric ids)
   if (optionRaw) {
     option = buttons.find(b => {
       if (typeof b === 'object' && b.id !== undefined) return String(b.id) === String(optionRaw);
       if (typeof b === 'string') return String(b) === String(optionRaw);
       return false;
     });
-
-    // If numeric-looking and still not found, treat as index
     if (!option && !Number.isNaN(Number(optionRaw))) {
       const idx = Number(optionRaw);
-      if (idx >= 0 && idx < buttons.length) {
-        option = (typeof buttons[idx] === 'object') ? buttons[idx] : { id: idx, label: buttons[idx] };
-      }
+      if (idx >= 0 && idx < buttons.length) option = (typeof buttons[idx] === 'object') ? buttons[idx] : { id: idx, label: buttons[idx] };
     }
   }
 
-  // Fallback: try to match by clicked button label from original message (best-effort)
+  // fallback: try matching by clicked button label (best-effort)
   if (!option && interaction.message && Array.isArray(interaction.message.components)) {
     try {
       for (const row of interaction.message.components) {
@@ -2656,10 +2694,9 @@ if (kind === 'ticket_menu') {
           }
         }
       }
-    } catch (e) { /* ignore parsing issues */ }
+    } catch (e) { /* ignore */ }
   }
 
-  // If still not found, show user a fallback menu (instead of failing)
   if (!option) {
     console.warn('ticket_menu click: option not found', { menuIdRaw, optionRaw, customId: interaction.customId, savedButtons: buttons });
     const fallbackRows = [];
@@ -2669,9 +2706,7 @@ if (kind === 'ticket_menu') {
       slice.forEach((b, idx) => {
         const btnId = (typeof b === 'object' && b.id !== undefined) ? b.id : (typeof b === 'string' ? b : i + idx);
         const label = (typeof b === 'object') ? (b.label || String(btnId)) : String(b);
-        row.addComponents(
-          new ButtonBuilder().setCustomId(`ticket_menu:${ticketDef.id}:${btnId}`).setLabel(label.slice(0,80)).setStyle(ButtonStyle.Primary)
-        );
+        row.addComponents(new ButtonBuilder().setCustomId(`ticket_menu:${ticketDef.id}:${btnId}`).setLabel(label.slice(0,80)).setStyle(ButtonStyle.Primary));
       });
       fallbackRows.push(row);
     }
@@ -2680,29 +2715,51 @@ if (kind === 'ticket_menu') {
     });
   }
 
-  // We have a resolved option — create the ticket channel
-  try {
-    const g = interaction.guild;
-    if (!g) return interaction.reply({ content: '❌ Tickets must be created inside a server.', flags: 64 });
+  // --- We have a resolved option. Now create the ticket channel in the correct category ---
+  const g = interaction.guild;
+  if (!g) return interaction.reply({ content: '❌ Tickets must be created inside a server.', flags: 64 });
 
+  // Determine parent (category) ID:
+  let parentId;
+  try {
+    const optStr = String(option.id || optionRaw || '').toLowerCase();
+    if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
+    else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
+    else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
+    else parentId = TICKET_REFERENCES?.categories?.support;
+  } catch (e) {
+    parentId = TICKET_REFERENCES?.categories?.support;
+  }
+
+  // Ensure parentId is a string or undefined
+  if (parentId) parentId = String(parentId);
+
+  // permission check: bot must be able to create channels
+  const botMember = g.members.me || (await g.members.fetch(interaction.client.user.id).catch(()=>null));
+  if (botMember && !botMember.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+    return interaction.reply({ content: '❌ I need the Manage Channels permission to create ticket channels. Please grant it and try again.', flags: 64 });
+  }
+
+  try {
     const sanitized = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
     const channelName = `ticket-${sanitized}-${menuId}`;
-    const parent = typeof TICKET_CATEGORY_ID !== 'undefined' ? TICKET_CATEGORY_ID : null;
 
-    const overwrites = [
+    const permissionOverwrites = [
       { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
     ];
     if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
-      overwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+      permissionOverwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
     }
 
-    const ticketChannel = await g.channels.create({
+    const createOpts = {
       name: channelName,
       type: ChannelType.GuildText,
-      parent,
-      permissionOverwrites: overwrites
-    });
+      permissionOverwrites
+    };
+    if (parentId) createOpts.parent = parentId;
+
+    const ticketChannel = await g.channels.create(createOpts);
 
     const introEmbed = new EmbedBuilder()
       .setTitle(`🎫 Ticket — ${ticketDef.name || 'Ticket'}`)
@@ -2714,34 +2771,32 @@ if (kind === 'ticket_menu') {
 
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [introEmbed] }).catch(()=>{});
 
-    // Persist mapping if you use openTickets/writeTicketState
+    // persist open ticket
     openTickets = openTickets || {};
-    openTickets[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw, createdAt: Date.now() };
+    openTickets[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw, createdAt: Date.now(), channelId: ticketChannel.id };
+    // persist to disk via state write (keep existing state structure consistent)
     if (typeof writeTicketState === 'function') {
       try {
         const state = readTicketState ? readTicketState() : {};
         state.open = state.open || {};
-        state.open[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw };
+        state.open[ticketChannel.id] = { userId: interaction.user.id, menuId, optionId: option.id || optionRaw, createdAt: Date.now(), channelId: ticketChannel.id };
         writeTicketState(state);
       } catch (e) { console.warn('writeTicketState failed:', e?.message || e); }
+    } else {
+      // fallback using our runtime persist helper
+      persistTicketStateFull();
     }
 
     return interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
   } catch (err) {
     console.error('Error creating ticket channel:', err);
-    return interaction.reply({ content: '❌ Failed to create ticket channel. Check bot permissions.', flags: 64 });
+    return interaction.reply({ content: '❌ Failed to create ticket channel. Check bot permissions and category config.', flags: 64 });
   }
 }
 
 if (kind === 'staffapp') {
   await interaction.reply({ content: '✅ Staff application clicked — staff will be notified.', flags: 64 }).catch(()=>{});
 }
-
-        } catch (err) {
-          console.error('Ticket button error:', err);
-          if (!interaction.replied) interaction.reply({ content: '❌ Ticket button failed.', flags: 64 }).catch(()=>{});
-        }
-      }
 
       // ---------- Giveaway buttons (existing) ----------
       async function updateGiveawayEmbed(msgId) {
@@ -2981,6 +3036,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
