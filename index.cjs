@@ -4,7 +4,7 @@ require('dotenv').config();
 // Fetch import (compatible with CommonJS)
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 if (!process.env.DISCORD_TOKEN) {
-  console.error("❌ Missing DISCORD_TOKEN in environment! Set it in Render's Environment tab.");
+  console.error("❌ Missing DISCORD_TOKEN in environment! Set it in .env file.");
   process.exit(1);
 }
 
@@ -27,6 +27,7 @@ const {
   ComponentType,
   InteractionType,
   ChannelType,
+  PermissionsBitField,
 } = require('discord.js');
 
 // -------------------- Config (edit only if you want to change IDs) --------------------
@@ -2980,5 +2981,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
