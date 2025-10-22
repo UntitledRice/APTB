@@ -1484,35 +1484,29 @@ if (content.startsWith('.ticket')) {
       return;
     }
     
-    // ---------- Giveaway Interaction Safety Helper ----------
-    async function safeReply(i, data, type = 'reply') {
-      try {
-        // Skip if interaction expired (15min rule)
-        if (Date.now() - i.createdTimestamp > 14 * 60 * 1000) {
-          console.warn('⏱️ Interaction expired, skipping.');
-          return;
-        }
-
-        if (type === 'reply') {
-          if (!i.replied && !i.deferred) return await i.reply({ ...data }).catch(() => {});
-          if (i.replied && !i.deferred) return await i.followUp({ ...data }).catch(() => {});
-          return;
-        }
-
-        if (type === 'update') {
-          if (!i.replied && !i.deferred) return await i.update({ ...data }).catch(() => {});
-          if (i.deferred) return await i.editReply({ ...data }).catch(() => {});
-          return;
-        }
-      } catch (err) {
-        if (err?.code === 10062 || /Unknown interaction/i.test(err?.message)) {
-          // interaction already expired or acknowledged
-          console.warn('⚠️ Skipped unknown/expired interaction safely.');
-          return;
-        }
-        console.error('❌ Interaction error:', err);
-      }
+// ---------- Giveaway Interaction Safety Helper ----------
+async function safeReply(i, data) {
+  try {
+    // Skip if the interaction is too old (Discord expires after ~15 min)
+    if (Date.now() - i.createdTimestamp > 14 * 60 * 1000) {
+      console.warn('⏱️ Interaction expired, skipping.');
+      return;
     }
+
+    // Ensure replies only visible to the user (ephemeral)
+    if (i.deferred || i.replied) {
+      return await i.followUp({ ...data, flags: 64 }).catch(() => {});
+    } else {
+      return await i.reply({ ...data, flags: 64 }).catch(() => {});
+    }
+  } catch (err) {
+    if (err?.code === 10062 || /Unknown interaction/i.test(err?.message)) {
+      console.warn('⚠️ Skipped unknown/expired interaction safely.');
+      return;
+    }
+    console.error('❌ safeReply error:', err);
+  }
+}
 
 // ---- Giveaway Create ----
 if (subCmd === 'create') {
@@ -3421,6 +3415,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
