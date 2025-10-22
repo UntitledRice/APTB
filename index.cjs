@@ -1434,22 +1434,32 @@ if (content.startsWith('.ticket')) {
         .setTimestamp();
 
       const generateCategoryEmbed = (cmds, categoryName) => {
-        const embed = new EmbedBuilder()
-          .setTitle(`${categoryName}`)
-          .setColor(0x2b6cb0)
-          .setFooter({ text: `Requested by ${message.author.tag}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
-          .setTimestamp();
+  const embed = new EmbedBuilder()
+    .setTitle(`${categoryName}`)
+    .setColor(0x2b6cb0)
+    .setFooter({ text: `Requested by ${message.author.tag}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+    .setTimestamp();
 
-        cmds.forEach(cmd => {
-          const status = cmd.status ? ` **Status:** ${cmd.status}` : '';
-          embed.addFields({
-            name: `${cmd.name} (${cmd.roles.join(', ')})`,
-            value: `**Description:** ${cmd.desc}\n**Args:** ${cmd.args}${status}`,
-            inline: false
-          });
-        });
-        return embed;
-      };
+  let totalLength = 0;
+  for (const cmd of cmds) {
+    const status = cmd.status ? ` **Status:** ${cmd.status}` : '';
+    const field = {
+      name: `${cmd.name} (${cmd.roles.join(', ')})`,
+      value: `**Description:** ${cmd.desc}\n**Args:** ${cmd.args}${status}`,
+      inline: false
+    };
+
+    const projected = totalLength + field.name.length + field.value.length;
+    if (projected < 5500) {
+      embed.addFields(field);
+      totalLength = projected;
+    } else {
+      console.warn(`⚠️ Skipping extra commands in ${categoryName} — embed too long.`);
+      break;
+    }
+  }
+  return embed;
+};
 
       const options = Object.keys(categories).map(key => ({ label: key, value: key }));
       const row = new ActionRowBuilder().addComponents(
@@ -1469,17 +1479,25 @@ if (content.startsWith('.ticket')) {
   }
 
   const selected = i.values[0];
+  const cmds = categories[selected];
+
+  if (!cmds) {
+    await safeReply(i, { content: `⚠️ No commands found for **${selected}**.`, flags: 64 });
+    return;
+  }
 
   try {
-    // Instead of reply, use update if possible (keeps the same message alive)
     await i.update({
-      embeds: [generateCategoryEmbed(categories[selected], selected)],
-      components: [row], // keep dropdown visible
+      embeds: [generateCategoryEmbed(cmds, selected)],
+      components: [row],
     });
-  } catch (err) {
-    console.warn('Help menu update failed, falling back to reply:', err);
-    await safeReply(i, { embeds: [generateCategoryEmbed(categories[selected], selected)], components: [row] });
-  }
+ } catch (err) {
+  console.warn('Help menu update failed, fallback triggered:', err);
+  await helpMsg.edit({
+    embeds: [generateCategoryEmbed(categories[selected], selected)],
+    components: [row],
+  });
+}
 });
       return;
     }
@@ -3415,6 +3433,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
