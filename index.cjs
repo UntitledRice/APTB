@@ -2942,7 +2942,7 @@ try {
 
             // Compose a summary embed with answers and send notification
             const lines = (answers && answers.length) ? answers.map((a,i) => `**Q${i+1}:** ${a}`).join('\n\n') : 'No answers provided.';
-            const summary = new EmbedBuilder()
+            const ticketSummary = new EmbedBuilder()
               .setTitle(`🎫 New Ticket — ${ticketDef?.name || 'Ticket'}`)
               .addFields(
                 { name: 'User', value: `<@${targetUserId}>`, inline: true },
@@ -2953,7 +2953,7 @@ try {
 
             try {
               if (ticketChannel) {
-                await ticketChannel.send({ content: `<@${targetUserId}>`, embeds: [summary] }).catch(()=>{});
+                await ticketChannel.send({ content: `<@${targetUserId}>`, embeds: [ticketSummary] }).catch(()=>{});
                 if (!interaction.replied) await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
               } else {
                 if (!interaction.replied) await interaction.reply({ content: '❌ Failed to create ticket channel.', flags: 64 }).catch(()=>{});
@@ -3416,4 +3416,5 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
