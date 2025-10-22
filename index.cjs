@@ -1463,21 +1463,24 @@ if (content.startsWith('.ticket')) {
 
       const collector = helpMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 120000 });
       collector.on('collect', async i => {
-        if (i.user.id !== message.author.id) return safeReply(i, { content: 'This menu is not for you.', flags: 64 });
-        const selected = i.values[0];
-        await safeReply(i, { embeds: [generateCategoryEmbed(categories[selected], selected)], components: [] });
-        // const backButton = new ActionRowBuilder().addComponents(
-        //   new ButtonBuilder().setCustomId('help-back').setLabel('Back').setStyle(ButtonStyle.Primary)
-        // );
-        // await safeReply(i, { embeds: [generateCategoryEmbed(categories[selected], selected)], components: [backButton] });
-      });
+  if (i.user.id !== message.author.id) {
+    await safeReply(i, { content: 'This menu is not for you.', flags: 64 });
+    return;
+  }
 
-      // const btnCollector = helpMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 });
-      // btnCollector.on('collect', async i => {
-      //   if (i.user.id !== message.author.id) return safeReply(i, { content: 'This button is not for you.', flags: 64 });
-      //   if (i.customId === 'help-back') await safeReply(i, { embeds: [generateMainEmbed()], components: [row] });
-      // });
+  const selected = i.values[0];
 
+  try {
+    // Instead of reply, use update if possible (keeps the same message alive)
+    await i.update({
+      embeds: [generateCategoryEmbed(categories[selected], selected)],
+      components: [row], // keep dropdown visible
+    });
+  } catch (err) {
+    console.warn('Help menu update failed, falling back to reply:', err);
+    await safeReply(i, { embeds: [generateCategoryEmbed(categories[selected], selected)], components: [row] });
+  }
+});
       return;
     }
     
@@ -3418,6 +3421,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
