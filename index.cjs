@@ -201,6 +201,13 @@ function writeTicketStateSync(state) {
   }
 }
 
+// ---------- Ticket runtime state (persistent) ----------
+const _ticketStateStartup = (typeof readTicketState === 'function') ? readTicketState() : {};
+let postedTicketMenus = Array.isArray(_ticketStateStartup.posted) ? _ticketStateStartup.posted : [];
+let openTickets = (_ticketStateStartup.open && typeof _ticketStateStartup.open === 'object')
+  ? _ticketStateStartup.open
+  : {};
+
 // Function to handle warning and mute logic
 async function handleWarningsAndMute(user, message) {
   const muteRole = message.guild.roles.cache.get(MUTED_ROLE_ID);
@@ -3153,3 +3160,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
