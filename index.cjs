@@ -1464,17 +1464,18 @@ if (content.startsWith('.ticket')) {
       collector.on('collect', async i => {
         if (i.user.id !== message.author.id) return safeReply(i, { content: 'This menu is not for you.', flags: 64 });
         const selected = i.values[0];
-        const backButton = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('help-back').setLabel('Back').setStyle(ButtonStyle.Primary)
-        );
-        await safeReply(i, { embeds: [generateCategoryEmbed(categories[selected], selected)], components: [backButton] });
+        await safeReply(i, { embeds: [generateCategoryEmbed(categories[selected], selected)], components: [] });
+        // const backButton = new ActionRowBuilder().addComponents(
+        //   new ButtonBuilder().setCustomId('help-back').setLabel('Back').setStyle(ButtonStyle.Primary)
+        // );
+        // await safeReply(i, { embeds: [generateCategoryEmbed(categories[selected], selected)], components: [backButton] });
       });
 
-      const btnCollector = helpMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 });
-      btnCollector.on('collect', async i => {
-        if (i.user.id !== message.author.id) return safeReply(i, { content: 'This button is not for you.', flags: 64 });
-        if (i.customId === 'help-back') await safeReply(i, { embeds: [generateMainEmbed()], components: [row] });
-      });
+      // const btnCollector = helpMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 });
+      // btnCollector.on('collect', async i => {
+      //   if (i.user.id !== message.author.id) return safeReply(i, { content: 'This button is not for you.', flags: 64 });
+      //   if (i.customId === 'help-back') await safeReply(i, { embeds: [generateMainEmbed()], components: [row] });
+      // });
 
       return;
     }
@@ -3416,5 +3417,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
