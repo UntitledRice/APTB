@@ -1473,8 +1473,12 @@ if (content.startsWith('.ticket')) {
 
       const collector = helpMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 120000 });
       collector.on('collect', async i => {
+  // Make sure only the command author can use the menu
   if (i.user.id !== message.author.id) {
-    await safeReply(i, { content: 'This menu is not for you.', flags: 64 });
+    // Avoid duplicate replies by checking state
+    if (!i.deferred && !i.replied) {
+      await i.reply({ content: 'This menu is not for you.', flags: 64 }).catch(() => {});
+    }
     return;
   }
 
@@ -1482,22 +1486,32 @@ if (content.startsWith('.ticket')) {
   const cmds = categories[selected];
 
   if (!cmds) {
-    await safeReply(i, { content: `⚠️ No commands found for **${selected}**.`, flags: 64 });
+    if (!i.deferred && !i.replied) {
+      await i.reply({ content: `⚠️ No commands found for **${selected}**.`, flags: 64 }).catch(() => {});
+    }
     return;
   }
 
+  // Try update first; if expired or invalid, just edit helpMsg
   try {
-    await i.update({
+    if (!i.deferred && !i.replied) {
+      await i.update({
+        embeds: [generateCategoryEmbed(cmds, selected)],
+        components: [row],
+      });
+    } else {
+      await helpMsg.edit({
+        embeds: [generateCategoryEmbed(cmds, selected)],
+        components: [row],
+      });
+    }
+  } catch (err) {
+    console.warn('⚠️ Help menu update failed gracefully:', err?.message || err);
+    await helpMsg.edit({
       embeds: [generateCategoryEmbed(cmds, selected)],
       components: [row],
-    });
- } catch (err) {
-  console.warn('Help menu update failed, fallback triggered:', err);
-  await helpMsg.edit({
-    embeds: [generateCategoryEmbed(categories[selected], selected)],
-    components: [row],
-  });
-}
+    }).catch(() => {});
+  }
 });
       return;
     }
@@ -3433,6 +3447,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
