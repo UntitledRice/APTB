@@ -61,26 +61,6 @@ try {
   if (!fs.existsSync(TICKET_STATE_FILE)) fs.writeFileSync(TICKET_STATE_FILE, JSON.stringify({ posted: [] }, null, 2));
 } catch (err) { console.error('Failed ensure ticket storage:', err); }
 
-// ---------- Ticket runtime state (persistent) ----------
-const _ticketStateStartup = (typeof readTicketState === 'function') ? readTicketState() : {};
-let postedTicketMenus = Array.isArray(_ticketStateStartup.posted) ? _ticketStateStartup.posted : [];
-let openTickets = (_ticketStateStartup.open && typeof _ticketStateStartup.open === 'object') ? _ticketStateStartup.open : {};
-
-function persistTicketStateFull() {
-  try {
-    if (typeof writeTicketState === 'function') {
-      writeTicketState({ posted: postedTicketMenus, open: openTickets });
-    } else {
-      // if writeTicketState not found, fallback to your original save function
-      if (typeof saveTicketState === 'function') {
-        saveTicketState({ posted: postedTicketMenus, open: openTickets });
-      }
-    }
-  } catch (e) {
-    console.warn('persistTicketStateFull failed:', e?.message || e);
-  }
-}
-
 // Reference role/category IDs you requested (editable mapping)
 const TICKET_REFERENCES = {
   // categories
@@ -158,6 +138,66 @@ function safeWriteJSON(filePath, data) {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
   } catch (e) {
     console.error('❌ JSON write failed:', e);
+  }
+}
+
+// ===== Ticket state persistence helpers (persistent permanent fix) =====
+// data dir & file (adjust if you use a different folder)
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { console.error('Failed creating data dir:', e); }
+}
+const TICKETS_FILE = path.join(DATA_DIR, 'tickets.json');
+
+/**
+ * readTicketState()
+ * Synchronously returns the persisted ticket state object, or {} if missing/corrupt.
+ * Synchronous read at startup makes boot deterministic.
+ */
+function readTicketState() {
+  try {
+    if (!fs.existsSync(TICKETS_FILE)) return {};
+    const raw = fs.readFileSync(TICKETS_FILE, 'utf8');
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error('readTicketState failed - returning empty state:', err);
+    return {};
+  }
+}
+
+/**
+ * writeTicketState(state)
+ * Persist ticket state asynchronously (fire-and-forget). Returns Promise if awaited.
+ */
+function writeTicketState(state) {
+  try {
+    const data = state || {};
+    // write atomically to a temp file then rename to reduce corruption risk
+    const tmp = `${TICKETS_FILE}.tmp`;
+    return fsp.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8')
+      .then(() => fsp.rename(tmp, TICKETS_FILE))
+      .catch(err => {
+        console.error('writeTicketState async failed:', err);
+      });
+  } catch (err) {
+    console.error('writeTicketState failed:', err);
+    return Promise.resolve(); // keep callers safe
+  }
+}
+
+/**
+ * writeTicketStateSync(state)
+ * If you need a synchronous write (for shutdown paths), use this.
+ */
+function writeTicketStateSync(state) {
+  try {
+    const data = JSON.stringify(state || {}, null, 2);
+    const tmp = `${TICKETS_FILE}.tmp`;
+    fs.writeFileSync(tmp, data, 'utf8');
+    fs.renameSync(tmp, TICKETS_FILE);
+  } catch (err) {
+    console.error('writeTicketStateSync failed:', err);
   }
 }
 
@@ -3113,4 +3153,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
