@@ -1132,6 +1132,108 @@ if (content.startsWith('.coinrig')) {
   return message.channel.send(`🎩 The next coin flip for <@${allowedUserId}> is rigged to **${choice.toUpperCase()}**.`);
 }
 
+    // ---------- .ticket clear command ----------
+try {
+  // Adjust this to match your prefix variable (this example assumes `prefix` exists)
+  if (content && content.startsWith(prefix)) {
+    const args = content.slice(prefix.length).trim().split(/\s+/);
+    const command = args.shift().toLowerCase();
+
+    if (command === 'ticket' && args[0] && args[0].toLowerCase() === 'clear') {
+      // Permission: ManageGuild, server owner, OR STAFF_ROLE_ID
+      const member = message.member;
+      const isOwner = message.guild && (message.guild.ownerId === message.author.id);
+      const hasManage = member?.permissions?.has?.(PermissionsBitField.Flags.ManageGuild);
+      const hasStaffRole = typeof STAFF_ROLE_ID !== 'undefined' && member?.roles?.cache?.has?.(String(STAFF_ROLE_ID));
+
+      if (!hasManage && !isOwner && !hasStaffRole) {
+        return message.reply({ content: '🚫 You do not have permission to run this command. (Requires Manage Server or staff role)', ephemeral: false });
+      }
+
+      await message.reply({ content: '🔎 Clearing bot ticket/menu messages — this may take a bit...', ephemeral: false });
+
+      const guild = message.guild;
+      let deletedCount = 0;
+      const botId = client.user.id;
+
+      // Helper: checks whether a message looks like a ticket/menu posted by the bot
+      const looksLikeTicketMessage = m => {
+        if (!m) return false;
+        if (m.author?.id !== botId) return false;
+
+        const hasButtons = Array.isArray(m.components) && m.components.length > 0;
+        const embedTitle = (m.embeds && m.embeds[0] && m.embeds[0].title) ? String(m.embeds[0].title).toLowerCase() : '';
+        const embedFooter = (m.embeds && m.embeds[0] && m.embeds[0].footer && m.embeds[0].footer.text) ? String(m.embeds[0].footer.text).toLowerCase() : '';
+        const contentLower = String(m.content || '').toLowerCase();
+
+        if (hasButtons) return true;
+        if (embedTitle.includes('ticket') || embedTitle.includes('ticket menu') || embedTitle.includes('new ticket')) return true;
+        if (embedFooter.includes('ticket') || contentLower.includes('ticket_menu') || contentLower.includes('ticket_list')) return true;
+
+        return false;
+      };
+
+      // Iterate channels
+      for (const ch of guild.channels.cache.values()) {
+        // Only check text channels we can view and send in
+        try {
+          if (!ch || !ch.isText?.() || !ch.viewable) continue;
+
+          // fetch recent messages (limit 100)
+          let fetched;
+          try {
+            fetched = await ch.messages.fetch({ limit: 100 });
+          } catch (e) {
+            // can't fetch this channel — skip
+            continue;
+          }
+
+          const toDelete = fetched.filter(looksLikeTicketMessage);
+          for (const msg of toDelete.values()) {
+            try {
+              await msg.delete();
+              deletedCount++;
+            } catch (e) {
+              // ignore deletion failures (permissions, rate limits)
+              continue;
+            }
+          }
+        } catch (e) {
+          // continue other channels even on error
+          continue;
+        }
+      } // end channel loop
+
+      // Persist state so auto-repost is disabled until re-enabled
+      let ticketState = {};
+      try {
+        if (typeof readTicketState === 'function') {
+          ticketState = readTicketState() || {};
+        } else {
+          try { ticketState = require('./ticket_state.json'); } catch (e) { ticketState = {}; }
+        }
+      } catch(e){ ticketState = {}; }
+
+      ticketState.menus_posted = false;
+
+      try {
+        if (typeof writeTicketState === 'function') {
+          writeTicketState(ticketState);
+        } else {
+          const fs = require('fs');
+          fs.writeFileSync(require('path').resolve('./ticket_state.json'), JSON.stringify(ticketState, null, 2));
+        }
+      } catch (e) {
+        console.warn('Failed to persist ticket state:', e?.message || e);
+      }
+
+      return message.reply({ content: `✅ Done. Deleted ~${deletedCount} bot ticket/menu messages and disabled auto-repost until you re-enable it.`, ephemeral: false });
+    }
+  }
+} catch (cmdErr) {
+  console.error('ticket clear command failed:', cmdErr);
+}
+
 // ---------- .ticket command (owner only) — toggle poster in current channel ----------
 if (content.startsWith('.ticket')) {
   if (message.author.id !== OWNER_ID) return message.channel.send('❌ Only the owner can use this command.');
@@ -3314,3 +3416,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
