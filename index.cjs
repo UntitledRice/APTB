@@ -2703,48 +2703,140 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (!ticketChannel) {
-              // create new ticket channel
-              const sanitized = (`${interaction.user.username || 'user'}`).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
-              const channelName = `ticket-${sanitized}-${menuId}`;
+  // helper sanitize
+  const sanitize = s => String((s || '')).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
-              const overwrites = [
-                { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-                { id: targetUserId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-              ];
-              if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
-                overwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
-              }
+  // basic sanitized username fallback
+  const usernameSan = sanitize(interaction.user.username || interaction.user.tag || 'user');
 
-              const createOpts = { name: channelName, type: ChannelType.GuildText, permissionOverwrites: overwrites };
-              // pick parent same as button logic
-              let parentId;
-              try {
-                const optStr = String(option?.id || optionRaw || '').toLowerCase();
-                if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
-                else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
-                else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
-                else parentId = TICKET_REFERENCES?.categories?.support;
-              } catch (e) { parentId = TICKET_REFERENCES?.categories?.support; }
-              if (parentId) createOpts.parent = String(parentId);
+  // Use answers[] (collected above) to craft special names for sell/buy/gw/wager etc.
+  // answers[0] = first modal answer, answers[1] = second, etc.
+  const ans = (answers || []).map(a => String(a || '').trim());
 
-              ticketChannel = await g.channels.create(createOpts).catch(err => {
-                console.error('Failed to create ticket channel (modal):', err);
-                return null;
-              });
+  const optId = String(option?.id || optionRaw || '').toLowerCase();
 
-              if (ticketChannel) {
-                openTickets = openTickets || {};
-                openTickets[ticketChannel.id] = { userId: targetUserId, menuId, optionId: option?.id || optionIdRaw, createdAt: Date.now(), channelId: ticketChannel.id };
-                if (typeof writeTicketState === 'function') {
-                  try {
-                    const state = readTicketState ? readTicketState() : {};
-                    state.open = state.open || {};
-                    state.open[ticketChannel.id] = openTickets[ticketChannel.id];
-                    writeTicketState(state);
-                  } catch (e) { console.warn('writeTicketState failed:', e?.message || e); }
-                }
-              }
-            }
+  // generate channel name by requested patterns
+  let channelName;
+  if (optId.startsWith('apps:staff')) {
+    channelName = `staff-app-${usernameSan}`;
+  } else if (optId.startsWith('apps:pm')) {
+    channelName = `pm-app-${usernameSan}`;
+  } else if (optId.startsWith('apps:sponsor')) {
+    channelName = `sponsor-${usernameSan}`;
+  } else if (optId.startsWith('apps:trusted')) {
+    channelName = `trusted-role-${usernameSan}`;
+  } else if (optId.startsWith('apps:vouches')) {
+    channelName = `vouch-role-${usernameSan}`;
+  } else if (optId === 'support:general') {
+    channelName = `support-${usernameSan}`;
+  } else if (optId === 'support:sell') {
+    // expected answers: [type, amount, ign]
+    channelName = `sell-${sanitize(ans[1] || 'unknown')}-${sanitize(ans[0] || usernameSan)}`;
+  } else if (optId === 'support:buy') {
+    channelName = `buy-${sanitize(ans[1] || 'unknown')}-${sanitize(ans[0] || usernameSan)}`;
+  } else if (optId === 'support:gw') {
+    // expected answers: [host, amount, ign/proof]
+    channelName = `${sanitize(ans[0] || usernameSan)}-${sanitize(ans[1] || '0')}`;
+  } else if (optId === 'support:partner') {
+    channelName = `partner-${usernameSan}`;
+  } else if (optId === 'support:wager') {
+    // expected: [targetStaff, amount, ign/tier]
+    channelName = `${sanitize(ans[0] || usernameSan)}-${sanitize(ans[1] || '0')}`;
+  } else if (optId === 'support:suggestions') {
+    channelName = `suggestion-${usernameSan}`;
+  } else {
+    // fallback
+    channelName = `ticket-${usernameSan}-${menuId}`;
+  }
+
+  // build permission overwrites (preserve existing logic)
+  const overwrites = [
+    { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: targetUserId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+  ];
+  if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
+    overwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+  }
+
+  const createOpts = { name: channelName, type: ChannelType.GuildText, permissionOverwrites: overwrites };
+
+  // pick parent (reuse previous logic)
+  let parentId;
+  try {
+    const optStr = String(option?.id || optionRaw || '').toLowerCase();
+    if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
+    else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
+    else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
+    else parentId = TICKET_REFERENCES?.categories?.support;
+  } catch (e) {
+    parentId = TICKET_REFERENCES?.categories?.support;
+  }
+  if (parentId) createOpts.parent = String(parentId);
+
+  ticketChannel = await g.channels.create(createOpts).catch(err => {
+    console.error('Failed to create ticket channel (modal):', err);
+    return null;
+  });
+
+  if (ticketChannel) {
+    openTickets = openTickets || {};
+    openTickets[ticketChannel.id] = { userId: targetUserId, menuId, optionId: option?.id || optionIdRaw, createdAt: Date.now(), channelId: ticketChannel.id };
+    if (typeof writeTicketState === 'function') {
+      try {
+        const state = readTicketState ? readTicketState() : {};
+        state.open = state.open || {};
+        state.open[ticketChannel.id] = openTickets[ticketChannel.id];
+        writeTicketState(state);
+      } catch (e) { console.warn('writeTicketState failed:', e?.message || e); }
+    }
+  }
+}
+
+// Reconstruct question text map (same mapping used when we built the modal)
+const questionMap = {
+  'apps:staff': ['What experience do you have? Please go in detail.', 'Will you be willing to keep logging format and weekly req as staff?', 'What is your bal, net worth? (Assets)', 'How much do you make weekly?'],
+  'apps:pm': ['What experience do you have?', 'Will you be willing to use logging format and keep weekly reqs?'],
+  'apps:sponsor': ['How much do you want to sponsor?', 'One time or weekly?', 'You understand you must pay staff to run the giveaway and have read the role info channel?'],
+  'apps:trusted': ['How many vouches total do you have?', 'How many vouches do you have inside the server vs outside?', 'Please send proof of all in the ticket'],
+  'apps:vouches': ['How many vouches do you have total?', 'Please send all of them in ticket.'],
+  'support:general': ['Please explain your issue in detail (be clear & readable).'],
+  'support:sell': ['What kind of spawners are you selling?', 'How many?', 'What is your IGN?'],
+  'support:buy': ['What kind of spawners are you buying?', 'How many?', 'What is your IGN?'],
+  'support:gw': ['Who hosted the giveaway?', 'How much did you win?', 'What is your IGN? Also post proof in the ticket.'],
+  'support:partner': ['Please explain your partner request / details'],
+  'support:wager': ['Which staff do you want to wager?', 'How much money?', 'What is your IGN and tier?'],
+  'support:suggestions': ['Share your suggestion (clear, concise, actionable):'],
+};
+
+const qList = questionMap[String(option?.id || optionRaw || '').toLowerCase()] || [];
+
+// Compose a summary embed that pairs question text with the submitted answers
+const pairedLines = (answers && answers.length)
+  ? answers.map((a, i) => {
+      const qText = qList[i] || `Q${i+1}`;
+      return `**${qText}**\n${String(a).slice(0, 1000)}`;
+    }).join('\n\n')
+  : 'No answers provided.';
+
+const summary = new EmbedBuilder()
+  .setTitle(`🎫 New Ticket — ${ticketDef?.name || 'Ticket'}`)
+  .addFields(
+    { name: 'User', value: `<@${targetUserId}>`, inline: true },
+    { name: 'Opened by', value: `<@${interaction.user.id}>`, inline: true },
+    { name: 'Option', value: option?.label ? String(option.label) : String(option?.id || optionIdRaw), inline: false },
+    { name: 'Answers', value: pairedLines, inline: false }
+  ).setTimestamp();
+
+try {
+  if (ticketChannel) {
+    await ticketChannel.send({ content: `<@${targetUserId}>`, embeds: [summary] }).catch(()=>{});
+    if (!interaction.replied) await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
+  } else {
+    if (!interaction.replied) await interaction.reply({ content: '❌ Failed to create ticket channel.', flags: 64 }).catch(()=>{});
+  }
+} catch (e) {
+  if (!interaction.replied) await interaction.reply({ content: '❌ Ticket creation error.', flags: 64 }).catch(()=>{});
+}
 
             // Compose a summary embed with answers and send notification
             const lines = (answers && answers.length) ? answers.map((a,i) => `**Q${i+1}:** ${a}`).join('\n\n') : 'No answers provided.';
@@ -2992,28 +3084,96 @@ if (kind === 'ticket_menu') {
     }
 
     // ✅ Step 1: Show the modal instead of creating a channel directly
-    const modal = new ModalBuilder()
-      .setCustomId(`ticket_modal:${menuId}:${option.id || optionRaw}`)
-      .setTitle(`🎫 ${ticketDef.name || 'New Ticket'}`);
+try {
+  const optId = String(option?.id || optionRaw || '').toLowerCase();
 
-    const question1 = new TextInputBuilder()
-      .setCustomId('q_0')
-      .setLabel('Describe your issue or request:')
-      .setStyle(TextInputStyle.Paragraph)
-      .setRequired(true);
+  // mapping: optionId -> array of { label, style, required }
+  const questionMap = {
+    // Applications
+    'apps:staff': [
+      { label: 'What experience do you have? Please go in detail.', style: TextInputStyle.Paragraph, required: true },
+      { label: 'Will you be willing to keep logging format and weekly req as staff?', style: TextInputStyle.Short, required: true },
+      { label: 'What is your bal, net worth? (Assets)', style: TextInputStyle.Short, required: true },
+      { label: 'How much do you make weekly?', style: TextInputStyle.Short, required: true },
+    ],
+    'apps:pm': [
+      { label: 'What experience do you have?', style: TextInputStyle.Paragraph, required: true },
+      { label: 'Will you be willing to use logging format and keep weekly reqs?', style: TextInputStyle.Short, required: true },
+    ],
+    'apps:sponsor': [
+      { label: 'How much do you want to sponsor?', style: TextInputStyle.Short, required: true },
+      { label: 'One time or weekly?', style: TextInputStyle.Short, required: true },
+      { label: 'You understand you must pay staff to run and pay the giveaway and that you must have read the role info channel? (yes/no)', style: TextInputStyle.Short, required: true },
+    ],
+    'apps:trusted': [
+      { label: 'How many vouches total do you have?', style: TextInputStyle.Short, required: true },
+      { label: 'How many vouches do you have inside the server vs outside?', style: TextInputStyle.Short, required: true },
+      { label: 'Please send proof of all in the ticket (paste links/screenshots).', style: TextInputStyle.Paragraph, required: true },
+    ],
+    'apps:vouches': [
+      { label: 'How many vouches do you have total?', style: TextInputStyle.Short, required: true },
+      { label: 'Please send all of them in ticket (links/screenshots).', style: TextInputStyle.Paragraph, required: true },
+    ],
 
-    const question2 = new TextInputBuilder()
-      .setCustomId('q_1')
-      .setLabel('Additional details (optional):')
-      .setStyle(TextInputStyle.Paragraph)
-      .setRequired(false);
+    // Support
+    'support:general': [
+      { label: 'Please explain your issue in detail (be clear & readable).', style: TextInputStyle.Paragraph, required: true },
+    ],
+    'support:sell': [
+      { label: 'What kind of spawners are you selling?', style: TextInputStyle.Short, required: true },
+      { label: 'How many?', style: TextInputStyle.Short, required: true },
+      { label: 'What is your IGN?', style: TextInputStyle.Short, required: true },
+    ],
+    'support:buy': [
+      { label: 'What kind of spawners are you buying?', style: TextInputStyle.Short, required: true },
+      { label: 'How many?', style: TextInputStyle.Short, required: true },
+      { label: 'What is your IGN?', style: TextInputStyle.Short, required: true },
+    ],
+    'support:gw': [
+      { label: 'Who hosted the giveaway?', style: TextInputStyle.Short, required: true },
+      { label: 'How much did you win?', style: TextInputStyle.Short, required: true },
+      { label: 'What is your IGN? Also post proof in the ticket.', style: TextInputStyle.Paragraph, required: true },
+    ],
+    'support:partner': [
+      { label: 'Please explain your partner request / details', style: TextInputStyle.Paragraph, required: true },
+    ],
+    'support:wager': [
+      { label: 'Which staff do you want to wager?', style: TextInputStyle.Short, required: true },
+      { label: 'How much money?', style: TextInputStyle.Short, required: true },
+      { label: 'What is your IGN and tier?', style: TextInputStyle.Short, required: true },
+    ],
+    'support:suggestions': [
+      { label: 'Share your suggestion (clear, concise, actionable):', style: TextInputStyle.Paragraph, required: true },
+    ],
+  };
 
-    const row1 = new ActionRowBuilder().addComponents(question1);
-    const row2 = new ActionRowBuilder().addComponents(question2);
-    modal.addComponents(row1, row2);
+  const questions = questionMap[optId] || [{ label: 'Describe your issue or request:', style: TextInputStyle.Paragraph, required: true }];
 
-    await interaction.showModal(modal);
-    return; // stop further handling — modal submission handled separately
+  const modal = new ModalBuilder()
+    .setCustomId(`ticket_modal:${menuId}:${option.id || optionRaw}`)
+    .setTitle(`🎫 ${ticketDef.name || 'New Ticket'}`);
+
+  // add up to 5 inputs (Discord modal limit)
+  const rows = [];
+  for (let i = 0; i < Math.min(5, questions.length); i++) {
+    const q = questions[i];
+    const input = new TextInputBuilder()
+      .setCustomId(`q_${i}`)
+      .setLabel(q.label)
+      .setStyle(q.style || TextInputStyle.Short)
+      .setRequired(!!q.required);
+    rows.push(new ActionRowBuilder().addComponents(input));
+  }
+  modal.addComponents(...rows);
+
+  await interaction.showModal(modal);
+  return; // stop further handling — modal submission handled separately
+} catch (err) {
+  console.error('ticket_menu modal build error:', err);
+  try { if (!interaction.replied) await interaction.reply({ content: '❌ Failed building ticket modal.', flags: 64 }); } catch (e) {}
+  return;
+}
+
   } catch (err) {
     console.error('ticket_menu handling error:', err);
     try {
@@ -3154,5 +3314,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
