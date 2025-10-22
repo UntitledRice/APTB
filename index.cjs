@@ -37,6 +37,7 @@ const STAFF_ROLE_ID = '1424190162983976991';
 const ACTION_LOG_CHANNEL_ID = '1426318804849262643';
 const MUTED_ROLE_ID = '1426552661074772018';
 const MOD_LOG_CHANNEL_ID = '1427621567856251020'; // Punishment logs channel ID
+const prefix = '.';
 
 // -------------------- Files & persistence --------------------
 const LOGS_DIR = path.join(process.cwd(), 'logs');
@@ -3417,6 +3418,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
