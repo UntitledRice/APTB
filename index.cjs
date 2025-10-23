@@ -3119,6 +3119,14 @@ try {
 } catch (e) {
   if (!interaction.replied) await interaction.reply({ content: '❌ Ticket creation error.', flags: 64 }).catch(()=>{});
 }
+            } catch (err) {
+  console.error('Ticket modal handling error:', err);
+  try {
+    if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 });
+  } catch (e) { /* swallow */ }
+  return;
+}
+
           }
         } // end ticket_modal branch
 
@@ -3127,6 +3135,13 @@ try {
         try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch(e){}
         return;
       }
+  } catch (err) {
+  console.error('Ticket modal handling error:', err);
+  try {
+    if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 });
+  } catch (e) { /* swallow */ }
+  return;
+}
     } // end modal handling
 
     // ---------------- 2) Button interactions ----------------
@@ -3574,4 +3589,5 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
