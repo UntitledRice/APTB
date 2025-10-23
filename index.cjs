@@ -3127,16 +3127,6 @@ try {
 } // end ticket_modal try/catch
 
 } catch (err) {
-  // Errors that occur while handling the interaction (outside ticket branch)
-  console.error('Interaction handler error:', err);
-  try {
-    if (interaction && !interaction.replied && interaction.deferred) {
-      await interaction.followUp?.({ content: '❌ Internal error handling interaction.', flags: 64 });
-    }
-  } catch (e) { /* swallow */ }
-}
-
-} catch (err) {
   // Outermost modal dispatch catch
   console.error('Modal dispatch error:', err);
   try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch (e) { /* swallow */ }
