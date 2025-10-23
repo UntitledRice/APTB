@@ -3126,8 +3126,6 @@ try {
   return;
 } // end ticket_modal try/catch
 
-} // end ticket_modal branch
-
 } catch (err) {
   // Errors that occur while handling the interaction (outside ticket branch)
   console.error('Interaction handler error:', err);
@@ -3144,6 +3142,7 @@ try {
   try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch (e) { /* swallow */ }
   return;
 } // end modal handling
+  } // end ticket_modal branch
 
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
@@ -3590,4 +3589,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
