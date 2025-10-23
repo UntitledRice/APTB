@@ -3135,14 +3135,8 @@ try {
         try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch(e){}
         return;
       }
-  } catch (err) {
-  console.error('Ticket modal handling error:', err);
-  try {
-    if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 });
-  } catch (e) { /* swallow */ }
-  return;
-}
-    } // end modal handling
+    }
+ } // end modal handling
 
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
@@ -3589,5 +3583,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
