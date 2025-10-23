@@ -2834,12 +2834,26 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.customId && String(interaction.customId).startsWith('ticket_modal:')) {
           try {
             // ---------- Ticket modal submit handler ----------
-            const parts = String(interaction.customId || '').split(':');
-            // expected form: ticket_modal:<menuId>:<optionId>[:<targetUserId>]
-            const menuIdRaw = parts[1];
-            const optionIdRaw = parts[2];
-            const potentialTargetUserId = parts.length >= 4 ? parts.slice(3).join(':') : interaction.user.id;
-            let targetUserId = potentialTargetUserId || interaction.user.id;
+           // parse ticket_modal customId robustly
+// expected: ticket_modal:<menuId>:<optionId>  (optionId may contain ':'), optionally :<targetUserId> at the end
+const parts = String(interaction.customId || '').split(':');
+
+const menuIdRaw = parts[1];
+let optionIdRaw = '';
+let targetUserId = interaction.user.id; // default to submitter
+
+if (parts.length >= 3) {
+  // If the last segment looks like a Discord snowflake, treat it as the target user's id.
+  // This avoids confusing option ids that themselves contain ':' (like 'support:general').
+  const last = parts[parts.length - 1];
+  if (parts.length >= 4 && /^\d{17,20}$/.test(String(last))) {
+    targetUserId = String(last);
+    optionIdRaw = parts.slice(2, parts.length - 1).join(':');
+  } else {
+    // everything after index 1 is the option id (may contain colons)
+    optionIdRaw = parts.slice(2).join(':');
+  }
+}
 
 // 🧩 Sanity check — if it's not a valid snowflake (17–20 digits), default to the modal submitter
 if (!/^\d{17,20}$/.test(String(targetUserId))) {
@@ -3579,7 +3593,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
-
