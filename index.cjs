@@ -2946,14 +2946,26 @@ client.on('interactionCreate', async (interaction) => {
     channelName = `ticket-${usernameSan}-${menuId}`;
   }
 
-  // build permission overwrites safely
+// --- Fetch target member safely before creating the channel ---
+let targetMember = null;
+try {
+  targetMember = await g.members.fetch(targetUserId);
+} catch (err) {
+  console.warn(`⚠️ Could not fetch member ${targetUserId}: ${err.message}`);
+}
+
+// --- Build permission overwrites ---
 const overwrites = [
   {
-    id: g.roles.everyone.id, // must use .id, not object
+    id: g.roles.everyone.id,
     deny: [PermissionsBitField.Flags.ViewChannel],
   },
-  {
-    id: targetUserId, // must be a user ID string
+];
+
+// Add the target user if they exist
+if (targetMember) {
+  overwrites.push({
+    id: targetMember.id,
     allow: [
       PermissionsBitField.Flags.ViewChannel,
       PermissionsBitField.Flags.SendMessages,
@@ -2961,24 +2973,24 @@ const overwrites = [
       PermissionsBitField.Flags.AttachFiles,
       PermissionsBitField.Flags.EmbedLinks,
     ],
-  },
-];
+  });
+} else {
+  console.warn(`⚠️ Member ${targetUserId} not found or not cached; skipping user overwrite.`);
+}
 
-// Optional: add staff role if defined
-if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
-  const staffRole = g.roles.cache.get(STAFF_ROLE_ID);
-  if (staffRole) {
-    overwrites.push({
-      id: staffRole.id,
-      allow: [
-        PermissionsBitField.Flags.ViewChannel,
-        PermissionsBitField.Flags.SendMessages,
-        PermissionsBitField.Flags.ReadMessageHistory,
-      ],
-    });
-  } else {
-    console.warn(`⚠️ STAFF_ROLE_ID ${STAFF_ROLE_ID} not found in guild ${g.name}`);
-  }
+// Add staff role overwrite if exists
+const staffRole = g.roles.cache.get(STAFF_ROLE_ID);
+if (staffRole) {
+  overwrites.push({
+    id: staffRole.id,
+    allow: [
+      PermissionsBitField.Flags.ViewChannel,
+      PermissionsBitField.Flags.SendMessages,
+      PermissionsBitField.Flags.ReadMessageHistory,
+    ],
+  });
+} else {
+  console.warn(`⚠️ STAFF_ROLE_ID ${STAFF_ROLE_ID} not found in guild ${g.name}`);
 }
 
 const createOpts = {
@@ -3550,4 +3562,5 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
