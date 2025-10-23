@@ -414,6 +414,11 @@ try {
           await ch.messages.fetch(rec.messageId).then(m => m.delete()).catch(()=>null);
         }
       } catch(e){ console.warn('ticket startup delete failed', e); }
+      /* auto-fixed: added missing catch after try (original line 413) */
+      } catch (err) {
+        console.error('Auto-fixed missing catch (line 413):', err);
+      }
+
       // re-post fresh menu in the same channel
       try {
         const ch = await client.channels.fetch(rec.channelId).catch(()=>null);
@@ -556,6 +561,11 @@ async function updateStats(guild) {
       await createStatsChannels(guild);
       return;
     }
+      /* auto-fixed: added missing catch after try (original line 554) */
+      } catch (err) {
+        console.error('Auto-fixed missing catch (line 554):', err);
+      }
+
 
     // setName on channels — use .setName or .edit depending on your codebase but
     // using setName is fine here and we swallow errors (best-effort)
@@ -1738,6 +1748,11 @@ if (subCmd === 'delete') {
   } catch (e) {
     console.warn('⚠️ Failed to save giveaways after delete:', e);
   }
+      /* auto-fixed: added missing catch after try (original line 1737) */
+      } catch (err) {
+        console.error('Auto-fixed missing catch (line 1737):', err);
+      }
+
 
   return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
 }
@@ -2751,6 +2766,11 @@ if (fs.existsSync(logDir)) {
               details: line.slice(0, 800)
             });
           }
+      /* auto-fixed: added missing catch after try (original line 2745) */
+      } catch (err) {
+        console.error('Auto-fixed missing catch (line 2745):', err);
+      }
+
         }
       }
     } catch (e) {
@@ -3128,7 +3148,12 @@ try {
 }
 
           }
-        } // end ticket_modal branch
+        }
+      /* auto-fixed: added missing catch after try (original line 2796) */
+      } catch (err) {
+        console.error('Auto-fixed missing catch (line 2796):', err);
+      }
+ // end ticket_modal branch
 
       } catch (err) {
         console.error('Modal dispatch error:', err);
@@ -3136,6 +3161,11 @@ try {
         return;
       }
     }
+      /* auto-fixed: added missing catch after try (original line 2792) */
+      } catch (err) {
+        console.error('Auto-fixed missing catch (line 2792):', err);
+      }
+
  } // end modal handling
 
     // ---------------- 2) Button interactions ----------------
@@ -3310,6 +3340,11 @@ if (kind === 'ticket_menu') {
         /* ignore */
       }
     }
+      /* auto-fixed: added missing catch after try (original line 3292) */
+      } catch (err) {
+        console.error('Auto-fixed missing catch (line 3292):', err);
+      }
+
 
     if (!option) {
       const fallbackRows = [];
@@ -3583,6 +3618,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
