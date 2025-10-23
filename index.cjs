@@ -2946,6 +2946,12 @@ client.on('interactionCreate', async (interaction) => {
     channelName = `ticket-${usernameSan}-${menuId}`;
   }
 
+              // --- Ensure targetUserId is valid ---
+if (!/^\d{17,20}$/.test(String(targetUserId))) {
+  console.warn(`⚠️ Invalid targetUserId (${targetUserId}), defaulting to interaction user.`);
+  targetUserId = interaction.user.id;
+}
+
 // --- Fetch target member safely before creating the channel ---
 let targetMember = null;
 try {
@@ -3562,5 +3568,6 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
