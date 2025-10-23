@@ -3117,26 +3117,29 @@ try {
 } catch (e) {
   if (!interaction.replied) await interaction.reply({ content: '❌ Ticket creation error.', flags: 64 }).catch(()=>{});
 }
-       } catch (err) {
-        console.error('Ticket modal handling error:', err);
-        try {
-          if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 });
-        } catch (e) { /* swallow */ }
-        return;
-      } // end ticket_modal try/catch
+} catch (err) {
+  // This catches errors specific to the ticket-modal processing branch
+  console.error('Ticket modal handling error:', err);
+  try {
+    if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 });
+  } catch (e) { /* swallow */ }
+  return;
+} // end ticket_modal try/catch
 
-    } // end ticket_modal branch
-
-  } catch (err) {
-    console.error('Interaction handler error:', err);
-    try {
-      if (interaction && !interaction.replied && interaction.deferred) {
-        await interaction.followUp?.({ content: '❌ Internal error handling interaction.', flags: 64 });
-      }
-    } catch (e) { /* swallow */ }
-  }
+} // end ticket_modal branch
 
 } catch (err) {
+  // Errors that occur while handling the interaction (outside ticket branch)
+  console.error('Interaction handler error:', err);
+  try {
+    if (interaction && !interaction.replied && interaction.deferred) {
+      await interaction.followUp?.({ content: '❌ Internal error handling interaction.', flags: 64 });
+    }
+  } catch (e) { /* swallow */ }
+}
+
+} catch (err) {
+  // Outermost modal dispatch catch
   console.error('Modal dispatch error:', err);
   try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch (e) { /* swallow */ }
   return;
@@ -3587,3 +3590,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
