@@ -3121,7 +3121,7 @@ try {
   // This catches errors specific to the ticket-modal processing branch
   console.error('Ticket modal handling error:', err);
   try {
-    if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 });
+    if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 }).catch(()=>{});
   } catch (e) { /* swallow */ }
   return;
 } // end ticket_modal try/catch
@@ -3129,10 +3129,9 @@ try {
 } catch (err) {
   // Outermost modal dispatch catch
   console.error('Modal dispatch error:', err);
-  try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch (e) { /* swallow */ }
+  try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }).catch(()=>{}) } catch (e) { /* swallow */ }
   return;
 } // end modal handling
-  } // end ticket_modal branch
 
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
@@ -3579,3 +3578,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
