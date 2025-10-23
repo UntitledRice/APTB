@@ -2839,7 +2839,13 @@ client.on('interactionCreate', async (interaction) => {
             const menuIdRaw = parts[1];
             const optionIdRaw = parts[2];
             const potentialTargetUserId = parts.length >= 4 ? parts.slice(3).join(':') : interaction.user.id;
-            const targetUserId = potentialTargetUserId || interaction.user.id;
+            let targetUserId = potentialTargetUserId || interaction.user.id;
+
+// 🧩 Sanity check — if it's not a valid snowflake (17–20 digits), default to the modal submitter
+if (!/^\d{17,20}$/.test(String(targetUserId))) {
+  console.warn(`⚠️ Invalid or missing targetUserId (${targetUserId}), defaulting to interaction user.`);
+  targetUserId = interaction.user.id;
+}
 
             const menuId = isNaN(Number(menuIdRaw)) ? menuIdRaw : Number(menuIdRaw);
             const ticketDef = (Array.isArray(SAVED_TICKETS) ? SAVED_TICKETS : []).find(t => t.id === menuId || String(t.id) === String(menuId));
@@ -2853,7 +2859,12 @@ client.on('interactionCreate', async (interaction) => {
               const idx = Number(optionIdRaw);
               if (idx >= 0 && idx < buttons.length) option = (typeof buttons[idx] === 'object') ? buttons[idx] : { id: idx, label: buttons[idx] };
             }
-            const optionRaw = option ? (option.id || option.label) : optionIdRaw;
+            let optionRaw = option ? (option.id || option.label) : optionIdRaw;
+
+// ensure support options have proper prefix
+if (optionRaw && !String(optionRaw).startsWith('support:') && menuIdRaw === 'support') {
+  optionRaw = `support:${optionRaw}`;
+}
 
             // collect answers from modal fields (non-destructive best-effort)
             const answers = [];
@@ -3568,6 +3579,7 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
 
 
