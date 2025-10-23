@@ -3081,9 +3081,9 @@ const questionMap = {
   'support:suggestions': ['Share your suggestion (clear, concise, actionable):'],
 };
 
+// build final question->answer text
 const qList = questionMap[String(option?.id || optionRaw || '').toLowerCase()] || [];
 
-// Compose a summary embed that pairs question text with the submitted answers
 const pairedLines = (answers && answers.length)
   ? answers.map((a, i) => {
       const qText = qList[i] || `Q${i+1}`;
@@ -3091,6 +3091,7 @@ const pairedLines = (answers && answers.length)
     }).join('\n\n')
   : 'No answers provided.';
 
+// single unified embed (only one embed will be sent)
 const summary = new EmbedBuilder()
   .setTitle(`🎫 New Ticket — ${ticketDef?.name || 'Ticket'}`)
   .addFields(
@@ -3098,11 +3099,19 @@ const summary = new EmbedBuilder()
     { name: 'Opened by', value: `<@${interaction.user.id}>`, inline: true },
     { name: 'Option', value: option?.label ? String(option.label) : String(option?.id || optionIdRaw), inline: false },
     { name: 'Answers', value: pairedLines, inline: false }
-  ).setTimestamp();
+  )
+  .setTimestamp();
 
+// ping both the opened user and the staff role (so staff are alerted)
+const staffRoleId = STAFF_ROLE_ID || (TICKET_REFERENCES && TICKET_REFERENCES.roles && TICKET_REFERENCES.roles.staff);
+const pingContent = staffRoleId
+  ? `<@${targetUserId}> <@&${String(staffRoleId)}>`
+  : `<@${targetUserId}>`;
+
+// send a single message with the single embed
 try {
   if (ticketChannel) {
-    await ticketChannel.send({ content: `<@${targetUserId}>`, embeds: [summary] }).catch(()=>{});
+    await ticketChannel.send({ content: pingContent, embeds: [summary] }).catch(()=>{});
     if (!interaction.replied) await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
   } else {
     if (!interaction.replied) await interaction.reply({ content: '❌ Failed to create ticket channel.', flags: 64 }).catch(()=>{});
@@ -3110,34 +3119,6 @@ try {
 } catch (e) {
   if (!interaction.replied) await interaction.reply({ content: '❌ Ticket creation error.', flags: 64 }).catch(()=>{});
 }
-
-            // Compose a summary embed with answers and send notification
-            const lines = (answers && answers.length) ? answers.map((a,i) => `**Q${i+1}:** ${a}`).join('\n\n') : 'No answers provided.';
-            const ticketSummary = new EmbedBuilder()
-              .setTitle(`🎫 New Ticket — ${ticketDef?.name || 'Ticket'}`)
-              .addFields(
-                { name: 'User', value: `<@${targetUserId}>`, inline: true },
-                { name: 'Opened by', value: `<@${interaction.user.id}>`, inline: true },
-                { name: 'Option', value: option?.label ? String(option.label) : String(option?.id || optionIdRaw), inline: false },
-                { name: 'Answers', value: lines, inline: false }
-              ).setTimestamp();
-
-            try {
-              if (ticketChannel) {
-                await ticketChannel.send({ content: `<@${targetUserId}>`, embeds: [ticketSummary] }).catch(()=>{});
-                if (!interaction.replied) await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
-              } else {
-                if (!interaction.replied) await interaction.reply({ content: '❌ Failed to create ticket channel.', flags: 64 }).catch(()=>{});
-              }
-            } catch (e) {
-              if (!interaction.replied) await interaction.reply({ content: '❌ Ticket creation error.', flags: 64 }).catch(()=>{});
-            }
-
-            return;
-          } catch (err) {
-            console.error('Ticket modal handling error:', err);
-            try { if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 }); } catch(e){}
-            return;
           }
         } // end ticket_modal branch
 
@@ -3593,3 +3574,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
