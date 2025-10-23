@@ -1425,6 +1425,7 @@ if (content.startsWith('.rr')) {
         { name: '.punishlog', desc: 'View most recent punishments on a member.', args: '<userId or mention>', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.modlog', desc: 'View most recent commands by a staff member.', args: '<userId or mention>', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.giveaway', desc: 'Create, edit, or delete giveaways.', args: 'create/edit/delete [params]', roles: ['Staff'], category: '🟣 Staff Utilities' },
+        { name: '.rr', desc: 'Reroll a giveaway.', args: 'Giveaway message ID', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.welcome', desc: 'Send a welcome message to a new staff member.', args: '@User', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.vouch', desc: 'Ask others to vouch for you in the staff channel.', args: 'none', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.rvouch', desc: 'Restricted version of vouch for APT only.', args: 'none', roles: ['Specific User'], category: '🟣 Staff Utilities' },
@@ -3320,24 +3321,24 @@ try {
   const questionMap = {
     // Applications
     'apps:staff': [
-      { label: 'What experience do you have? Please go in detail.', style: TextInputStyle.Paragraph, required: true },
-      { label: 'Will you be willing to keep logging format and weekly req as staff?', style: TextInputStyle.Short, required: true },
+      { label: 'What experience do you have? Go in detail.', style: TextInputStyle.Paragraph, required: true },
+      { label: 'Will you keep logs format and weekly req?', style: TextInputStyle.Short, required: true },
       { label: 'What is your bal, net worth? (Assets)', style: TextInputStyle.Short, required: true },
       { label: 'How much do you make weekly?', style: TextInputStyle.Short, required: true },
     ],
     'apps:pm': [
       { label: 'What experience do you have?', style: TextInputStyle.Paragraph, required: true },
-      { label: 'Will you be willing to use logging format and keep weekly reqs?', style: TextInputStyle.Short, required: true },
+      { label: 'Will you be willing to use logs format and keep weekly reqs?', style: TextInputStyle.Short, required: true },
     ],
     'apps:sponsor': [
       { label: 'How much do you want to sponsor?', style: TextInputStyle.Short, required: true },
       { label: 'One time or weekly?', style: TextInputStyle.Short, required: true },
-      { label: 'You understand you must pay staff to run and pay the giveaway and that you must have read the role info channel? (yes/no)', style: TextInputStyle.Short, required: true },
+      { label: 'I have read the role info channel. (yes/no)', style: TextInputStyle.Short, required: true },
     ],
     'apps:trusted': [
       { label: 'How many vouches total do you have?', style: TextInputStyle.Short, required: true },
-      { label: 'How many vouches do you have inside the server vs outside?', style: TextInputStyle.Short, required: true },
-      { label: 'Please send proof of all in the ticket (paste links/screenshots).', style: TextInputStyle.Paragraph, required: true },
+      { label: 'How many vouches do you have inside server?', style: TextInputStyle.Short, required: true },
+      { label: 'Please send all in the ticket (paste links/screenshots).', style: TextInputStyle.Paragraph, required: true },
     ],
     'apps:vouches': [
       { label: 'How many vouches do you have total?', style: TextInputStyle.Short, required: true },
@@ -3346,7 +3347,7 @@ try {
 
     // Support
     'support:general': [
-      { label: 'Please explain your issue in detail (be clear & readable).', style: TextInputStyle.Paragraph, required: true },
+      { label: 'Please explain your issue neatly in ticket.', style: TextInputStyle.Paragraph, required: true },
     ],
     'support:sell': [
       { label: 'What kind of spawners are you selling?', style: TextInputStyle.Short, required: true },
@@ -3386,11 +3387,17 @@ try {
   const rows = [];
   for (let i = 0; i < Math.min(5, questions.length); i++) {
     const q = questions[i];
-    const input = new TextInputBuilder()
-      .setCustomId(`q_${i}`)
-      .setLabel(q.label)
-      .setStyle(q.style || TextInputStyle.Short)
-      .setRequired(!!q.required);
+    const safeLabel =
+  q.label.length > 45
+    ? q.label.slice(0, 42) + '...'
+    : q.label;
+
+const input = new TextInputBuilder()
+  .setCustomId(`q_${i}`)
+  .setLabel(safeLabel)
+  .setStyle(q.style || TextInputStyle.Short)
+  .setRequired(!!q.required);
+
     rows.push(new ActionRowBuilder().addComponents(input));
   }
   modal.addComponents(...rows);
@@ -3543,3 +3550,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
