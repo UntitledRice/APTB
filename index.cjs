@@ -797,7 +797,7 @@ async function scheduleGiveawayEnd(client, msgId) {
   const gw = giveaways[msgId];
   if (!gw || !gw.active) return;
 
-  // run every minute -- the embed itself will show relative time (<t:...:R>)
+  // dynamic refresh interval
   const interval = setInterval(async () => {
     try {
       const curGw = giveaways[msgId];
@@ -808,58 +808,58 @@ async function scheduleGiveawayEnd(client, msgId) {
       }
 
       const remaining = curGw.end - Date.now();
-      if (remaining > 0) {
-        return;
-      }
 
-      // Time's up
-      clearInterval(interval);
-      giveawayTimers.delete(msgId);
-      curGw.active = false;
+      // ⏱️ Countdown update frequency
+      let tickRate = 60 * 60 * 1000; // default: 1 hour
+      if (remaining <= 60 * 60 * 1000) tickRate = 60 * 1000; // under 1h → update every min
+      if (remaining <= 60 * 1000) tickRate = 1000;           // under 1m → update every sec
 
-      // compute eligible participants
-      const participants = (curGw.participants || []).filter(
-        id => !giveawayBans[id] && !giveawayRigged[id]
-      );
+      // if giveaway ended
+      if (remaining <= 0) {
+        clearInterval(interval);
+        giveawayTimers.delete(msgId);
+        curGw.active = false;
 
-      // pick winners
-      const winners = participants.length
-        ? participants.sort(() => Math.random() - 0.5).slice(0, curGw.winnersCount)
-        : [];
+        // compute eligible participants
+        const participants = (curGw.participants || []).filter(
+          id => !giveawayBans[id] && !giveawayRigged[id]
+        );
 
-      const winnerMentions = winners.length ? winners.map(id => `<@${id}>`).join(', ') : 'No valid entries 😢';
+        const winners = participants.length
+          ? participants.sort(() => Math.random() - 0.5).slice(0, curGw.winnersCount)
+          : [];
 
-      // fetch channel & message
-      const ch = await client.channels.fetch(curGw.channelId).catch(() => null);
-      if (!ch) {
-        saveGiveaways();
-        return;
-      }
-      const msg = await ch.messages.fetch(msgId).catch(() => null);
+        const winnerMentions = winners.length ? winners.map(id => `<@${id}>`).join(', ') : 'No valid entries 😢';
 
-      // build final embed
-      const endEmbed = new EmbedBuilder()
-        .setTitle(`🎉 ${curGw.prize}`)
-        .setDescription(
-          `🎁 **Prize:** ${curGw.prize}\n**Host:** <@${curGw.hostId}>\n**Winners:** ${winnerMentions}\n**Ended:** <t:${Math.floor(
-            curGw.end / 1000
-          )}:R>`
-        )
-        .setColor(0x00ff88);
+        // fetch channel & message
+        const ch = await client.channels.fetch(curGw.channelId).catch(() => null);
+        if (!ch) {
+          saveGiveaways();
+          return;
+        }
+        const msg = await ch.messages.fetch(msgId).catch(() => null);
 
-      if (msg) await msg.edit({ embeds: [endEmbed], components: [] }).catch(() => {});
+        // final embed
+        const endEmbed = new EmbedBuilder()
+          .setTitle(`🎉 ${curGw.prize}`)
+          .setDescription(
+            `🎁 **Prize:** ${curGw.prize}\n**Host:** <@${curGw.hostId}>\n**Winners:** ${winnerMentions}\n**Ended:** <t:${Math.floor(
+              curGw.end / 1000
+            )}:R>`
+          )
+          .setColor(0x00ff88);
 
-      // announce winners in the channel (ping)
-      if (winners.length > 0) {
-        try {
+        if (msg) await msg.edit({ embeds: [endEmbed], components: [] }).catch(() => {});
+
+        // announce winners
+        if (winners.length > 0) {
           const pingMsg = await ch.send({
             content: `🎊 Congratulations ${winnerMentions}! You won **${curGw.prize}**, hosted by <@${curGw.hostId}>!`,
           }).catch(() => null);
 
-          // optional cleanup: delete after 2 minutes
           if (pingMsg) setTimeout(() => pingMsg.delete().catch(() => {}), 2 * 60 * 1000);
 
-          // DM each winner (best-effort)
+          // DM winners
           for (const winnerId of winners) {
             try {
               const user = await client.users.fetch(winnerId).catch(() => null);
@@ -870,30 +870,35 @@ async function scheduleGiveawayEnd(client, msgId) {
               }
             } catch {}
           }
-        } catch (err) {
-          console.error('Error announcing giveaway winners:', err);
+        } else {
+          await ch.send('😢 No valid participants — no winners this time.').catch(() => {});
         }
-      } else {
-        await ch.send('😢 No valid participants — no winners this time.').catch(() => {});
+
+        saveGiveaways();
+        await logActionStructured({
+          command: '.giveaway',
+          message: { author: { id: curGw.hostId }, guild: { id: curGw.guildId }, channel: { id: curGw.channelId } },
+          details: `Giveaway ended — Prize: ${curGw.prize}, Winners: ${winnerMentions}`,
+        });
+
+        return;
       }
 
-      // final bookkeeping
-      saveGiveaways();
-      await logActionStructured({
-        command: '.giveaway',
-        message: { author: { id: curGw.hostId }, guild: { id: curGw.guildId }, channel: { id: curGw.channelId } },
-        details: `Giveaway ended — Prize: ${curGw.prize}, Winners: ${winnerMentions}`,
-      });
+      // 🔁 adjust interval dynamically
+      clearInterval(interval);
+      giveawayTimers.delete(msgId);
+      giveawayTimers.set(
+        msgId,
+        setInterval(() => scheduleGiveawayEnd(client, msgId), tickRate)
+      );
 
     } catch (err) {
       console.error('scheduleGiveawayEnd error for', msgId, err);
-      // don't crash the interval loop — attempt to clear and remove mapping
       try { clearInterval(interval); } catch {}
       giveawayTimers.delete(msgId);
     }
   }, 60 * 1000);
 
-  // save interval ref
   giveawayTimers.set(msgId, interval);
 }
 
@@ -1334,6 +1339,63 @@ if (content.startsWith('.ticket')) {
   }
 }
 
+    // -------------------- REROLL GIVEAWAY (.rr <messageId>) --------------------
+if (content.startsWith('.rr')) {
+  await recordUsage('.rr');
+  if (!isStaff) {
+    return message.channel.send('❌ Only staff can reroll giveaways.');
+  }
+
+  const parts = content.split(/\s+/);
+  const msgId = parts[1];
+  if (!msgId) return message.channel.send('⚠️ Usage: `.rr <GiveawayMessageID>`');
+
+  const gw = giveaways[msgId];
+  if (!gw) return message.channel.send('❌ Giveaway not found.');
+  if (!gw.participants || gw.participants.length === 0)
+    return message.channel.send('⚠️ No participants to reroll.');
+
+  // pick new winners from existing participants (excluding banned or rigged)
+  const participants = (gw.participants || []).filter(
+    id => !giveawayBans[id] && !giveawayRigged[id]
+  );
+
+  if (participants.length === 0)
+    return message.channel.send('😢 No valid participants to reroll.');
+
+  const shuffled = participants.sort(() => Math.random() - 0.5);
+  const newWinners = shuffled.slice(0, gw.winnersCount);
+
+  const winnerMentions = newWinners.map(id => `<@${id}>`).join(', ');
+
+  // fetch giveaway channel + message to announce reroll
+  let channel = null;
+  try {
+    channel = await client.channels.fetch(gw.channelId).catch(() => null);
+  } catch {}
+  if (!channel) return message.channel.send('⚠️ Giveaway channel not found.');
+
+  await channel.send(
+    `🔁 **Reroll Winners for:** ${gw.prize}\n👑 ${winnerMentions || 'No valid winners'}`
+  );
+
+  // DM each winner (best-effort)
+  for (const id of newWinners) {
+    try {
+      const user = await client.users.fetch(id).catch(() => null);
+      if (user) {
+        await user.send(
+          `🎉 You were rerolled as a winner for **${gw.prize}**!\nCheck the channel: ${channel}`
+        ).catch(() => {});
+      }
+    } catch {}
+  }
+
+  return message.channel.send(
+    `✅ Rerolled **${gw.winnersCount}** winners for giveaway \`${msgId}\`.`
+  );
+}
+
     // ---------- HELP (dropdown with live system status) ----------
     if (content === '.help') {
       await recordUsage('.help');
@@ -1372,7 +1434,8 @@ if (content.startsWith('.ticket')) {
         { name: '.unlock', desc: 'Unlock a previously locked channel.', args: 'none', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.inactive', desc: 'Start a 12-hour inactivity countdown for a ticket (auto-close).', args: '@User', roles: ['Staff'], category: '🟣 Staff Utilities' },
         { name: '.done', desc: 'Notify a user that their ad has been posted.', args: '@User', roles: ['Staff'], category: '🟣 Staff Utilities' },
-        { name: '.ticket', desc: 'Post a ticket interface.', args: 'Ticket #', roles: ['Owner'], category: '🟣 Staff Utilities' },
+        { name: '.ticket', desc: 'Toggle on or off a ticket interface.', args: 'Ticket #', roles: ['Owner'], category: '🟣 Staff Utilities' },
+        { name: '.ticket clear', desc: 'Clear posted tickets.', args: 'Ticket #', roles: ['Owner'], category: '🟣 Staff Utilities' },
 
         // 🟠 Announcements / Role Pings
         { name: '.pm', desc: 'Ping Members role.', args: 'none', roles: ['Staff'], category: '🟠 Announcements' },
@@ -2295,7 +2358,7 @@ if (content === '.stats') {
       '.qdp':'1424243841459949578',
       '.partner':'1424244020137431080',
       '.scam':'1424245388193566720',
-      '.blacklist':'1424245388193566720'
+      '.blacklist':'1430710337971425433'
     };
     const cmdBase = content.split(' ')[0];
     if (Object.keys(pingRoles).includes(cmdBase)) {
@@ -2882,34 +2945,67 @@ client.on('interactionCreate', async (interaction) => {
     channelName = `ticket-${usernameSan}-${menuId}`;
   }
 
-  // build permission overwrites (preserve existing logic)
-  const overwrites = [
-    { id: g.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-    { id: targetUserId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-  ];
-  if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
-    overwrites.push({ id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+  // build permission overwrites safely
+const overwrites = [
+  {
+    id: g.roles.everyone.id, // must use .id, not object
+    deny: [PermissionsBitField.Flags.ViewChannel],
+  },
+  {
+    id: targetUserId, // must be a user ID string
+    allow: [
+      PermissionsBitField.Flags.ViewChannel,
+      PermissionsBitField.Flags.SendMessages,
+      PermissionsBitField.Flags.ReadMessageHistory,
+      PermissionsBitField.Flags.AttachFiles,
+      PermissionsBitField.Flags.EmbedLinks,
+    ],
+  },
+];
+
+// Optional: add staff role if defined
+if (typeof STAFF_ROLE_ID !== 'undefined' && STAFF_ROLE_ID) {
+  const staffRole = g.roles.cache.get(STAFF_ROLE_ID);
+  if (staffRole) {
+    overwrites.push({
+      id: staffRole.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+    });
+  } else {
+    console.warn(`⚠️ STAFF_ROLE_ID ${STAFF_ROLE_ID} not found in guild ${g.name}`);
   }
+}
 
-  const createOpts = { name: channelName, type: ChannelType.GuildText, permissionOverwrites: overwrites };
+const createOpts = {
+  name: channelName,
+  type: ChannelType.GuildText,
+  permissionOverwrites: overwrites,
+};
 
-  // pick parent (reuse previous logic)
-  let parentId;
-  try {
-    const optStr = String(option?.id || optionRaw || '').toLowerCase();
-    if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
-    else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
-    else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
-    else parentId = TICKET_REFERENCES?.categories?.support;
-  } catch (e) {
-    parentId = TICKET_REFERENCES?.categories?.support;
-  }
-  if (parentId) createOpts.parent = String(parentId);
+// pick parent (reuse previous logic)
+let parentId;
+try {
+  const optStr = String(option?.id || optionRaw || '').toLowerCase();
+  if (optStr.includes('partner')) parentId = TICKET_REFERENCES?.categories?.partner;
+  else if (optStr.includes('sell') || optStr.includes('buy')) parentId = TICKET_REFERENCES?.categories?.sellbuy;
+  else if (optStr.includes('gw') || optStr.includes('claim')) parentId = TICKET_REFERENCES?.categories?.gwclaim;
+  else parentId = TICKET_REFERENCES?.categories?.support;
+} catch (e) {
+  parentId = TICKET_REFERENCES?.categories?.support;
+}
+if (parentId) createOpts.parent = String(parentId);
 
-  ticketChannel = await g.channels.create(createOpts).catch(err => {
-    console.error('Failed to create ticket channel (modal):', err);
-    return null;
-  });
+let ticketChannel;
+try {
+  ticketChannel = await g.channels.create(createOpts);
+} catch (err) {
+  console.error('❌ Failed to create ticket channel (modal):', err);
+  ticketChannel = null;
+}
 
   if (ticketChannel) {
     openTickets = openTickets || {};
@@ -3447,11 +3543,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
-
-
-
-
-
-
