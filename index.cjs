@@ -30,7 +30,7 @@ const {
   PermissionsBitField,
 } = require('discord.js');
 
-// -------------------- Config (edit only if you want to change IDs) --------------------
+// -------------------- Config (IDs) --------------------
 const OWNER_ID = '754859771479457879';
 const STAFF_ROLE_ID = '1424190162983976991';
 //const HEARTBEAT_CHANNEL_ID = '1426317682575282226';
@@ -62,7 +62,7 @@ try {
   if (!fs.existsSync(TICKET_STATE_FILE)) fs.writeFileSync(TICKET_STATE_FILE, JSON.stringify({ posted: [] }, null, 2));
 } catch (err) { console.error('Failed ensure ticket storage:', err); }
 
-// Reference role/category IDs you requested (editable mapping)
+// Reference role/category IDs (editable mapping)
 const TICKET_REFERENCES = {
   // categories
   categories: {
@@ -85,7 +85,7 @@ const TICKET_REFERENCES = {
   }
 };
 
-// Ticket catalog (use this structure to store each ticket type)
+// Ticket catalog
 const SAVED_TICKETS = [
   {
     id: 1,
@@ -142,8 +142,8 @@ function safeWriteJSON(filePath, data) {
   }
 }
 
-// ===== Ticket state persistence helpers (persistent permanent fix) =====
-// data dir & file (adjust if you use a different folder)
+// ===== Ticket state persistence helpers (persistent) =====
+// data dir & file
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) {
   try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { console.error('Failed creating data dir:', e); }
@@ -301,7 +301,6 @@ const client = new Client({
     partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
 });
 
-// ✅ Make this global so command handler can access it
 let botReady = false;
 
 // -------------------- Port (for PI) --------------------
@@ -327,7 +326,7 @@ try {
   const res = await fetch('https://discord.com/api/v10/gateway');
   console.log('🌐 Discord API reachable:', res.ok);
 } catch (err) {
-  console.error('❌ Discord API unreachable from Render:', err);
+  console.error('❌ Discord API unreachable:', err);
 }
 
 try {
@@ -557,8 +556,8 @@ async function updateStats(guild) {
       return;
     }
 
-    // setName on channels — use .setName or .edit depending on your codebase but
-    // using setName is fine here and we swallow errors (best-effort)
+    // setName on channels — use .setName or .edit
+    // using setName here and swallow errors (best-effort)
     await memberChannel.setName(`👥 Members: ${memberCount}`).catch(()=>{});
     await botChannel.setName(`🤖 Bots: ${botCount}`).catch(()=>{});
   } catch (err) {
@@ -569,7 +568,7 @@ async function updateStats(guild) {
 async function createStatsChannels(guild) {
   try {
     const everyoneRole = guild.roles.everyone;
-    // delete old ones if exist (safe)
+    // delete old ones if exist
     const oldMember = guild.channels.cache.get(statsData[guild.id]?.memberChannel);
     const oldBot = guild.channels.cache.get(statsData[guild.id]?.botChannel);
     if (oldMember) await oldMember.delete().catch(()=>{});
@@ -610,7 +609,7 @@ async function createStatsChannels(guild) {
 }
 
 function startStatsLoop() {
-  // ensure we only have one interval running
+  // ensure only one interval running
   if (statsInterval) {
     try { clearInterval(statsInterval); } catch (e) {}
     statsInterval = null;
@@ -785,7 +784,7 @@ async function resumeInactiveTimers(client) {
   }
 }
 
-// In-memory timers for running giveaways so we can re-schedule/clear them
+// In-memory timers for running giveaways so can re-schedule/clear them
 const giveawayTimers = new Map();
 async function scheduleGiveawayEnd(client, msgId) {
   // clear any existing timer for this giveaway
@@ -907,7 +906,7 @@ client.on('messageCreate', async message => {
   if (!botReady) return; // Ignore all messages until bot is ready
   try {
 //    Use below if no bot feedback to see if console registers commands
-//    console.log(`[DEBUG] Message received: "${message.content}" from ${message.author.tag}`);
+    console.log(`[DEBUG] Message received: "${message.content}" from ${message.author.tag}`);
     if (message.author.bot) return;
     console.log(`Received message: ${message.content}`);
     const contentRaw = message.content?.trim() || '';
@@ -1140,7 +1139,6 @@ if (content.startsWith('.coinrig')) {
 
     // ---------- .ticket clear command ----------
 try {
-  // Adjust this to match your prefix variable (this example assumes `prefix` exists)
   if (content && content.startsWith(prefix)) {
     const args = content.slice(prefix.length).trim().split(/\s+/);
     const command = args.shift().toLowerCase();
@@ -3127,7 +3125,15 @@ try {
   return;
 }
 
-          }
+   }
+  } catch (err) {
+    console.error('Interaction handler error:', err);
+    try {
+      if (interaction && !interaction.replied && interaction.deferred) {
+        await interaction.followUp?.({ content: '❌ Internal error handling interaction.', flags: 64 });
+      }
+    } catch(e) { /* swallow */ }
+        
         } // end ticket_modal branch
 
       } catch (err) {
@@ -3135,8 +3141,7 @@ try {
         try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch(e){}
         return;
       }
-    }
- } // end modal handling
+   } // end modal handling
 
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
@@ -3583,3 +3588,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
