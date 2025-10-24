@@ -3126,18 +3126,13 @@ const pingContent = staffRoleId
     } catch (e) { /* swallow */ }
     return;
   }
-
-  // ... (other modal-type branches or code that continues inside the outer try) ...
-
-} catch (err) {
-  // Outermost modal dispatch catch
-  console.error('Modal dispatch error:', err);
-  try {
-    if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }).catch(()=>{});
-  } catch (e) { /* swallow */ }
-  return;
-}
-// end modal handling
+        }
+      } catch (err) {
+        console.error('Modal submission error:', err);
+        try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }); } catch(e){}
+      }
+    }
+    // end modal handling
 
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
