@@ -3124,7 +3124,6 @@ try {
     if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 }).catch(()=>{});
   } catch (e) { /* swallow */ }
   return;
-} // end ticket_modal try/catch
 
 } catch (err) {
   // Outermost modal dispatch catch
@@ -3578,5 +3577,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
-
