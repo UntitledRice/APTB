@@ -3107,31 +3107,38 @@ const pingContent = staffRoleId
   : `<@${targetUserId}>`;
 
 // send a single message with the single embed
-try {
-  if (ticketChannel) {
-    await ticketChannel.send({ content: pingContent, embeds: [summary] }).catch(()=>{});
-    if (!interaction.replied) await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
-  } else {
-    if (!interaction.replied) await interaction.reply({ content: '❌ Failed to create ticket channel.', flags: 64 }).catch(()=>{});
+    try {
+      if (ticketChannel) {
+        await ticketChannel.send({ content: pingContent, embeds: [summary] }).catch(()=>{});
+        if (!interaction.replied) await interaction.reply({ content: `✅ Ticket created: <#${ticketChannel.id}>`, flags: 64 }).catch(()=>{});
+      } else {
+        if (!interaction.replied) await interaction.reply({ content: '❌ Failed to create ticket channel.', flags: 64 }).catch(()=>{});
+      }
+    } catch (e) {
+      // Error while sending the ticket message / replying
+      if (!interaction.replied) await interaction.reply({ content: '❌ Ticket creation error.', flags: 64 }).catch(()=>{});
+    }
+  } catch (err) {
+    // This catches errors specific to the ticket-modal processing branch
+    console.error('Ticket modal handling error:', err);
+    try {
+      if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 }).catch(()=>{});
+    } catch (e) { /* swallow */ }
+    return;
   }
-} catch (e) {
-  if (!interaction.replied) await interaction.reply({ content: '❌ Ticket creation error.', flags: 64 }).catch(()=>{});
-}
-} catch (err) {
-  // This catches errors specific to the ticket-modal processing branch
-  console.error('Ticket modal handling error:', err);
-  try {
-    if (!interaction.replied) await interaction.reply({ content: '❌ Failed processing ticket modal.', flags: 64 }).catch(()=>{});
-  } catch (e) { /* swallow */ }
-  return;
+
+  // ... (other modal-type branches or code that continues inside the outer try) ...
 
 } catch (err) {
   // Outermost modal dispatch catch
   console.error('Modal dispatch error:', err);
-  try { if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }).catch(()=>{}) } catch (e) { /* swallow */ }
+  try {
+    if (!interaction.replied) await interaction.reply({ content: '❌ Modal processing failed.', flags: 64 }).catch(()=>{});
+  } catch (e) { /* swallow */ }
   return;
-} // end modal handling
-
+}
+// end modal handling
+      
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
     if (isButton && interaction.customId) {
@@ -3577,3 +3584,4 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
