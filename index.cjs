@@ -321,7 +321,7 @@ const loginWithTimeout = async (timeoutMs = 45000) => {
     new Promise((_, reject) => setTimeout(() => reject(new Error('Login timeout after 45s')), timeoutMs))
   ]);
 };
-    
+
 try {
   const res = await fetch('https://discord.com/api/v10/gateway');
   console.log('🌐 Discord API reachable:', res.ok);
@@ -1050,7 +1050,7 @@ if ((containsProfanity || containsNudity || containsLink) && !isWhitelistedChann
     }
 }
 
-    
+
     // ---------- simple public commands ----------
     if (content === '.ping') {
       await recordUsage('.ping');
@@ -1577,7 +1577,7 @@ if (content.startsWith('.rr')) {
 });
       return;
     }
-    
+
 // ---------- Giveaway Interaction Safety Helper ----------
 async function safeReply(i, data) {
   try {
@@ -1658,7 +1658,7 @@ if (subCmd === 'create') {
 
   return message.channel.send(`✅ Giveaway started for **${prize}**!`);
 } // end subCmd === 'create'
-    
+
 // ---- Giveaway Ban / Unban (staff only) ----
 // Usage: .giveaway ban @user   OR .giveaway ban <userId>
 //        .giveaway unban @user OR .giveaway unban <userId>
@@ -1739,7 +1739,7 @@ if (subCmd === 'delete') {
 
   return message.channel.send(`🗑️ Giveaway ${msgId} removed.`);
 }
-    
+
 // ---- Giveaway Edit (interactive panel) ----
 if (subCmd === 'edit') {
   const msgId = args[0];
@@ -2102,7 +2102,7 @@ if (content === '.stats') {
         channelId: MOD_LOG_CHANNEL_ID
       });
     }
-    
+
     // ---------- .vouch / .rvouch ----------
     if (content.startsWith('.vouch')) {
       await recordUsage('.vouch');
@@ -3138,7 +3138,7 @@ const pingContent = staffRoleId
   return;
 }
 // end modal handling
-      
+
     // ---------------- 2) Button interactions ----------------
     const isButton = (typeof interaction.isButton === 'function') ? interaction.isButton() : interaction.isButton;
     if (isButton && interaction.customId) {
@@ -3584,4 +3584,3 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
-
