@@ -454,16 +454,16 @@ try {
   } catch (err) {
     console.error('Ticket readiness error:', err);
   }
-});  // <-- closes client.once('ready', async () => { ... })
+}); // <-- closes client.once('ready', async () => { ... })
 
-    // Handle disconnects / reconnects
-    client.on('shardDisconnect', () => console.warn('⚠️ Discord connection lost.'));
-    client.on('shardReconnecting', () => console.warn('🔁 Reconnecting to Discord...'));
+// Handle disconnects / reconnects
+client.on('shardDisconnect', () => console.warn('⚠️ Discord connection lost.'));
+client.on('shardReconnecting', () => console.warn('🔁 Reconnecting to Discord...'));
 
-  } catch (err) {
-    console.error('❌ Startup error:', err);
-    process.exit(1);
-  }
+} catch (err) {
+  console.error('❌ Startup error:', err);
+  process.exit(1);
+}
 })();
 
 // -------------------- Logging (structured) --------------------
@@ -3578,4 +3578,5 @@ setInterval(() => {
     console.error('❌ Hourly autosave failed:', err);
   }
 }, 60 * 60 * 1000);
+
 
